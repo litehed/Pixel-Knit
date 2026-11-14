@@ -1,11 +1,12 @@
 from PySide6.QtWidgets import (
+    QDockWidget,
     QFileDialog,
     QMainWindow,
     QStackedWidget,
     QWidget,
     QHBoxLayout,
 )
-from PySide6.QtGui import QAction, QKeySequence
+from PySide6.QtGui import QAction, QKeySequence, Qt
 
 from pixel_knit.core.recent_files import load_recent, remove_recent
 from pixel_knit.ui.start_screen import StartScreen
@@ -25,20 +26,22 @@ class MainWindow(QMainWindow):
         self.current_path: str | None = None
 
         self.start_screen = StartScreen()
-        self.start_screen = StartScreen()
         self.canvas = GridCanvas()
         self.palette_panel = PalettePanel()
 
-        self.editor = QWidget()
-        editor_layout = QHBoxLayout(self.editor)
-        editor_layout.setContentsMargins(0, 0, 0, 0)
-        editor_layout.setSpacing(0)
-        editor_layout.addWidget(self.canvas, 1)
-        editor_layout.addWidget(self.palette_panel)
+        self.palette_dock = QDockWidget("Palette", self)
+        self.palette_dock.setObjectName(
+            "paletteDock"
+        )
+        self.palette_dock.setWidget(self.palette_panel)
+        self.palette_dock.setAllowedAreas(
+            Qt.DockWidgetArea.LeftDockWidgetArea | Qt.DockWidgetArea.RightDockWidgetArea
+        )
+        self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.palette_dock)
 
         self.stack = QStackedWidget()
         self.stack.addWidget(self.start_screen)
-        self.stack.addWidget(self.editor)
+        self.stack.addWidget(self.canvas)
         self.setCentralWidget(self.stack)
 
         self.palette_panel.colorSelected.connect(self.canvas.set_active_color)
@@ -76,13 +79,16 @@ class MainWindow(QMainWindow):
         self.fit_act.setShortcut(QKeySequence("Ctrl+0"))
         self.fit_act.triggered.connect(self.canvas.reset_view)
 
+        self.palette_act = self.palette_dock.toggleViewAction()
         view_menu.addActions([self.zoom_in_act, self.zoom_out_act, self.fit_act])
+        view_menu.addAction(self.palette_act)
 
         self._editor_actions = [
             self.close_act,
             self.zoom_in_act,
             self.zoom_out_act,
             self.fit_act,
+            self.palette_act,
         ]
 
     def _remove_recent(self, path):
@@ -94,6 +100,7 @@ class MainWindow(QMainWindow):
         self.stack.setCurrentWidget(self.start_screen)
         self.setWindowTitle(WINDOW_NAME)
         self.statusBar().clearMessage()
+        self.palette_dock.hide()
         for act in self._editor_actions:
             act.setEnabled(False)
 
@@ -107,11 +114,12 @@ class MainWindow(QMainWindow):
     def _show_editor(self, pattern: Pattern):
         self.canvas.set_pattern(pattern)
         self._refresh_palette()
-        self.stack.setCurrentWidget(self.editor)
+        self.stack.setCurrentWidget(self.canvas)
+        self.palette_dock.show()
         self.setWindowTitle(f"Untitled - {WINDOW_NAME}")
         for act in self._editor_actions:
             act.setEnabled(True)
-    
+
     def _refresh_palette(self):
         self.palette_panel.set_palette(self.canvas.pattern.palette)
 

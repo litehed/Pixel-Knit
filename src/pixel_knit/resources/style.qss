@@ -75,7 +75,17 @@ QPushButton#primaryButton:hover {
 
 #palettePanel {
     background: #ffffff;
-    border-left: 1px solid #ddd5cc;
+}
+
+QDockWidget {
+    font-size: 11px;
+    font-weight: 600;
+    color: #8a817a;
+}
+QDockWidget::title {
+    background: #f1ece6;
+    padding: 6px 10px;
+    border-bottom: 1px solid #ddd5cc;
 }
 
 #hexEdit {

@@ -42,7 +42,6 @@ class ColorPicker(QWidget):
         self._val = 0.13
         self._drag: str | None = None
 
-    # ---- public API ----
     def color_hex(self) -> str:
         return QColor.fromHsvF(self._hue, self._sat, self._val).name()
 
@@ -148,7 +147,7 @@ class PalettePanel(QWidget):
         super().__init__(parent)
         self.setObjectName("palettePanel")
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
-        self.setFixedWidth(PANEL_WIDTH)
+        self.setMinimumWidth(PANEL_WIDTH)
 
         self._active = "#222222"
         self._swatches: list[QPushButton] = []
