@@ -98,3 +98,7 @@ QDockWidget::title {
 #hexEdit:focus {
     border-color: #c2566b;
 }
+
+#recentThumb {
+    background: transparent;
+}

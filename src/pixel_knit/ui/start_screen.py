@@ -11,6 +11,9 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+from PySide6.QtGui import QPixmap
+
+import pixel_knit.ui.thumbnail
 
 CONTENT_WIDTH = 480
 
@@ -29,10 +32,10 @@ class StartScreen(QWidget):
         self._build_ui()
         self.set_recent_projects([])
 
-    def set_recent_projects(self, paths: list[str]) -> None:
+    def set_recent_projects(self, entries: list[tuple[str, QPixmap | None]]) -> None:
         self.recent_list.clear()
-        for path in paths:
-            self._add_recent_item(path)
+        for path, thumbnail in entries:
+            self._add_recent_item(path, thumbnail)
 
         has_items = self.recent_list.count() > 0
         self.recent_list.setVisible(has_items)
@@ -107,18 +110,30 @@ class StartScreen(QWidget):
         section.addWidget(self.recent_list)
         return section
 
-    def _add_recent_item(self, path: str) -> None:
+    def _add_recent_item(self, path: str, thumbnail: QPixmap | None) -> None:
         name = QLabel(Path(path).stem)
         name.setObjectName("recentName")
         location = QLabel(str(Path(path).parent))
         location.setObjectName("recentPath")
 
+        text = QVBoxLayout()
+        text.setSpacing(2)
+        text.addWidget(name)
+        text.addWidget(location)
+
         row = QWidget()
-        row_layout = QVBoxLayout(row)
+        row_layout = QHBoxLayout(row)
         row_layout.setContentsMargins(12, 8, 12, 8)
-        row_layout.setSpacing(2)
-        row_layout.addWidget(name)
-        row_layout.addWidget(location)
+        row_layout.setSpacing(12)
+        row_layout.addLayout(text, 1)
+        if thumbnail is not None:
+            preview = QLabel()
+            preview.setObjectName("recentThumb")
+            preview.setPixmap(thumbnail)
+            row_layout.addWidget(
+                preview,
+                alignment=Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter,
+            )
 
         item = QListWidgetItem()
         item.setData(Qt.ItemDataRole.UserRole, path)
@@ -127,7 +142,7 @@ class StartScreen(QWidget):
         self.recent_list.addItem(item)
         self.recent_list.setItemWidget(item, row)
 
-    # ---- handlers ----
+    # handlers for signals from the recent list
     def _on_item_activated(self, item: QListWidgetItem) -> None:
         self.recentChosen.emit(item.data(Qt.ItemDataRole.UserRole))
 

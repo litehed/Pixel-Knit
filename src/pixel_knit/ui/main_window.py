@@ -1,7 +1,7 @@
 from pathlib import Path
 
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QAction, QCloseEvent, QKeySequence
+from PySide6.QtGui import QAction, QCloseEvent, QKeySequence, QPixmap
 from PySide6.QtWidgets import (
     QDockWidget,
     QFileDialog,
@@ -24,6 +24,7 @@ from pixel_knit.ui.grid_canvas import ZOOM_STEP, GridCanvas
 from pixel_knit.ui.new_project_dialog import NewProjectDialog
 from pixel_knit.ui.palette_panel import PalettePanel
 from pixel_knit.ui.start_screen import StartScreen
+from pixel_knit.ui.thumbnail import render_thumbnail
 
 WINDOW_NAME = "Pixel Knit"
 
@@ -64,6 +65,7 @@ class MainWindow(QMainWindow):
 
         self._build_menus()
         self.tabs.currentChanged.connect(self._on_tab_changed)
+        self._thumb_cache: dict[str, tuple[float, QPixmap]] = {}
         self._on_tab_changed(0)
 
     # Menu and toolbar setup
@@ -144,7 +146,7 @@ class MainWindow(QMainWindow):
             act.setEnabled(on_project)
 
         if canvas is None:  # Home
-            self.start_screen.set_recent_projects(load_recent())
+            self.start_screen.set_recent_projects(self._recent_entries())
             self.setWindowTitle(WINDOW_NAME)
             self.setWindowModified(False)
             return
@@ -231,7 +233,22 @@ class MainWindow(QMainWindow):
 
     def _remove_recent(self, path: str):
         remove_recent(path)
-        self.start_screen.set_recent_projects(load_recent())
+        self.start_screen.set_recent_projects(self._recent_entries())
+
+    def _recent_entries(self) -> list[tuple[str, QPixmap | None]]:
+        return [(path, self._thumbnail_for(path)) for path in load_recent()]
+
+    def _thumbnail_for(self, path: str) -> QPixmap | None:
+        try:
+            mtime = Path(path).stat().st_mtime
+            cached = self._thumb_cache.get(path)
+            if cached and cached[0] == mtime:
+                return cached[1]
+            pixmap = render_thumbnail(load_pattern(path))
+        except (OSError, PatternFileError):
+            return None  # still list the file, just without a preview
+        self._thumb_cache[path] = (mtime, pixmap)
+        return pixmap
 
     # Saving
     def save(self) -> bool:
