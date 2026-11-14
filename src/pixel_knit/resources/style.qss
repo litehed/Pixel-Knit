@@ -1,0 +1,74 @@
+#startScreen {
+    background: #faf8f5;
+}
+
+#startTitle {
+    font-size: 36px;
+    font-weight: 700;
+    color: #2b2623;
+}
+
+#startSubtitle {
+    font-size: 14px;
+    color: #8a817a;
+}
+
+#sectionHeading {
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 1px;
+    color: #8a817a;
+}
+
+#emptyState {
+    color: #a89f97;
+    border: 1px dashed #ddd5cc;
+    border-radius: 10px;
+}
+
+QPushButton {
+    padding: 10px 18px;
+    border: 1px solid #ddd5cc;
+    border-radius: 8px;
+    background: #ffffff;
+    color: #2b2623;
+    font-size: 14px;
+}
+QPushButton:hover {
+    background: #f1ece6;
+}
+
+QPushButton#primaryButton {
+    background: #c2566b;
+    border-color: #c2566b;
+    color: #ffffff;
+    font-weight: 600;
+}
+QPushButton#primaryButton:hover {
+    background: #ad4a5e;
+}
+
+#recentList {
+    background: #ffffff;
+    border: 1px solid #ddd5cc;
+    border-radius: 10px;
+    outline: 0;
+}
+#recentList::item:hover {
+    background: #f6f1ec;
+}
+#recentList::item:selected {
+    background: #f3dfe3;
+}
+
+#recentName {
+    font-size: 14px;
+    font-weight: 600;
+    color: #2b2623;
+    background: transparent;
+}
+#recentPath {
+    font-size: 11px;
+    color: #8a817a;
+    background: transparent;
+}
