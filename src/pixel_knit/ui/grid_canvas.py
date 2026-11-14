@@ -14,6 +14,7 @@ GRID_LINE_MIN_CELL = 6
 
 class GridCanvas(QWidget):
     paletteChanged = Signal()
+    patternEdited = Signal()
 
     def __init__(self, pattern: Pattern | None = None, parent=None):
         super().__init__(parent)
@@ -97,6 +98,7 @@ class GridCanvas(QWidget):
         row, col = hit
         if self.pattern.set_cell(row, col, self._stroke_value):
             self.update()
+            self.patternEdited.emit()
 
     def set_active_color(self, color: str) -> None:
         self.active_color = color

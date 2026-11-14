@@ -1,14 +1,24 @@
+from pathlib import Path
+
 from PySide6.QtWidgets import (
     QDockWidget,
     QFileDialog,
     QMainWindow,
+    QMessageBox,
     QStackedWidget,
     QWidget,
     QHBoxLayout,
 )
-from PySide6.QtGui import QAction, QKeySequence, Qt
+from PySide6.QtGui import QAction, QCloseEvent, QKeySequence, Qt
 
 from pixel_knit.core.recent_files import load_recent, remove_recent
+from pixel_knit.core.storage import (
+    EXTENSION,
+    FILE_FILTER,
+    PatternFileError,
+    load_pattern,
+    save_pattern,
+)
 from pixel_knit.ui.start_screen import StartScreen
 from pixel_knit.core.pattern import Pattern
 from pixel_knit.ui.grid_canvas import ZOOM_STEP, GridCanvas
@@ -24,15 +34,14 @@ class MainWindow(QMainWindow):
         self.resize(900, 700)
 
         self.current_path: str | None = None
+        self._dirty = False
 
         self.start_screen = StartScreen()
         self.canvas = GridCanvas()
         self.palette_panel = PalettePanel()
 
         self.palette_dock = QDockWidget("Palette", self)
-        self.palette_dock.setObjectName(
-            "paletteDock"
-        )
+        self.palette_dock.setObjectName("paletteDock")
         self.palette_dock.setWidget(self.palette_panel)
         self.palette_dock.setAllowedAreas(
             Qt.DockWidgetArea.LeftDockWidgetArea | Qt.DockWidgetArea.RightDockWidgetArea
@@ -46,6 +55,7 @@ class MainWindow(QMainWindow):
 
         self.palette_panel.colorSelected.connect(self.canvas.set_active_color)
         self.canvas.paletteChanged.connect(self._refresh_palette)
+        self.canvas.patternEdited.connect(self._on_pattern_edited)
         self.canvas.set_active_color(self.palette_panel.active_color)
 
         self.start_screen.newRequested.connect(self.new_project)
@@ -58,13 +68,27 @@ class MainWindow(QMainWindow):
 
     def _build_menus(self):
         file_menu = self.menuBar().addMenu("&File")
+
+        new_act = QAction("New...", self)
+        new_act.setShortcut(QKeySequence(QKeySequence.StandardKey.New))
+        new_act.triggered.connect(self.new_project)
+
         open_act = QAction("Open...", self)
         open_act.setShortcut(QKeySequence(QKeySequence.StandardKey.Open))
-        file_menu.addAction(open_act)
-        self.close_act = QAction("Close Project", self)
-        self.close_act.setShortcut(QKeySequence(QKeySequence.StandardKey.Close))
-        self.close_act.triggered.connect(self._show_start_screen)
-        file_menu.addAction(self.close_act)
+        open_act.triggered.connect(self.open_dialog)
+
+        self.save_act = QAction("Save", self)
+        self.save_act.setShortcut(QKeySequence(QKeySequence.StandardKey.Save))
+        self.save_act.triggered.connect(self.save)
+
+        self.save_as_act = QAction("Save As...", self)
+        self.save_as_act.setShortcut(QKeySequence(QKeySequence.StandardKey.SaveAs))
+        self.save_as_act.triggered.connect(self.save_as)
+
+        file_menu.addActions([new_act, open_act])
+        file_menu.addSeparator()
+        file_menu.addActions([self.save_act, self.save_as_act])
+
         view_menu = self.menuBar().addMenu("&View")
 
         self.zoom_in_act = QAction("Zoom In", self)
@@ -84,7 +108,6 @@ class MainWindow(QMainWindow):
         view_menu.addAction(self.palette_act)
 
         self._editor_actions = [
-            self.close_act,
             self.zoom_in_act,
             self.zoom_out_act,
             self.fit_act,
@@ -98,33 +121,115 @@ class MainWindow(QMainWindow):
     def _show_start_screen(self):
         self.start_screen.set_recent_projects(load_recent())
         self.stack.setCurrentWidget(self.start_screen)
+        self.palette_dock.hide()
+        self.current_path = None
+        self._set_dirty(False)
         self.setWindowTitle(WINDOW_NAME)
         self.statusBar().clearMessage()
-        self.palette_dock.hide()
         for act in self._editor_actions:
             act.setEnabled(False)
 
     # Project actions
     def new_project(self):
         dialog = NewProjectDialog(self)
-        if dialog.exec():
+        if dialog.exec() and self._confirm_discard():
             width, height = dialog.grid_size
-            self._show_editor(Pattern(width=width, height=height))
+            self._show_editor(Pattern(width=width, height=height), None)
 
-    def _show_editor(self, pattern: Pattern):
+    def open_dialog(self):
+        path, _ = QFileDialog.getOpenFileName(self, "Open pattern", "", FILE_FILTER)
+        if path:
+            self.open_project(path)
+
+    def open_project(self, path: str):
+        if not self._confirm_discard():
+            return
+        try:
+            pattern = load_pattern(path)
+        except PatternFileError as err:
+            QMessageBox.warning(self, WINDOW_NAME, f"Couldn't open that file.\n\n{err}")
+            return
+        self._show_editor(pattern, path)
+
+    def close_project(self):
+        if self._confirm_discard():
+            self._show_start_screen()
+
+    def _show_editor(self, pattern: Pattern, path: str | None):
         self.canvas.set_pattern(pattern)
         self._refresh_palette()
+        self.current_path = path
+        self._set_dirty(False)
+        self._update_title()
         self.stack.setCurrentWidget(self.canvas)
         self.palette_dock.show()
-        self.setWindowTitle(f"Untitled - {WINDOW_NAME}")
         for act in self._editor_actions:
             act.setEnabled(True)
 
     def _refresh_palette(self):
         self.palette_panel.set_palette(self.canvas.pattern.palette)
 
-    def open_dialog(self):
-        pass
+    def save(self) -> bool:
+        if self.current_path is None:
+            return self.save_as()
+        return self._write(self.current_path)
 
-    def open_project(self, path: str):
-        pass
+    def save_as(self) -> bool:
+        suggested = self.current_path or f"Untitled{EXTENSION}"
+        path, _ = QFileDialog.getSaveFileName(
+            self, "Save pattern", suggested, FILE_FILTER
+        )
+        if not path:
+            return False
+        if not path.lower().endswith(EXTENSION):
+            path += EXTENSION
+        return self._write(path)
+
+    def _write(self, path: str) -> bool:
+        try:
+            save_pattern(self.canvas.pattern, path)
+        except OSError as err:
+            QMessageBox.warning(self, WINDOW_NAME, f"Couldn't save the file.\n\n{err}")
+            return False
+        self.current_path = path
+        self._set_dirty(False)
+        self._update_title()
+        return True
+
+    def _on_pattern_edited(self):
+        self._set_dirty(True)
+
+    def _set_dirty(self, dirty: bool):
+        self._dirty = dirty
+        self.setWindowModified(dirty)
+
+    def _update_title(self):
+        name = Path(self.current_path).stem if self.current_path else "Untitled"
+        # Qt replacesthe marker with an * while the window is modified
+        self.setWindowTitle(f"{name}[*] - {WINDOW_NAME}")
+
+    def _confirm_discard(self) -> bool:
+        if not self._dirty:
+            return True
+        name = Path(self.current_path).stem if self.current_path else "Untitled"
+        box = QMessageBox(self)
+        box.setIcon(QMessageBox.Icon.Warning)
+        box.setWindowTitle(WINDOW_NAME)
+        box.setText(f"Save changes to {name}?")
+        box.setInformativeText("Your changes will be lost if you don't save them.")
+        box.setStandardButtons(
+            QMessageBox.StandardButton.Save
+            | QMessageBox.StandardButton.Discard
+            | QMessageBox.StandardButton.Cancel
+        )
+        box.setDefaultButton(QMessageBox.StandardButton.Save)
+        choice = box.exec()
+        if choice == QMessageBox.StandardButton.Save:
+            return self.save()
+        return choice == QMessageBox.StandardButton.Discard
+
+    def closeEvent(self, event: QCloseEvent):
+        if self._confirm_discard():
+            event.accept()
+        else:
+            event.ignore()
