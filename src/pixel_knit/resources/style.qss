@@ -72,3 +72,19 @@ QPushButton#primaryButton:hover {
     color: #8a817a;
     background: transparent;
 }
+
+#palettePanel {
+    background: #ffffff;
+    border-left: 1px solid #ddd5cc;
+}
+
+#hexEdit {
+    padding: 6px 8px;
+    border: 1px solid #ddd5cc;
+    border-radius: 6px;
+    background: #faf8f5;
+    color: #2b2623;
+}
+#hexEdit:focus {
+    border-color: #c2566b;
+}

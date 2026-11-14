@@ -12,6 +12,7 @@ from pixel_knit.ui.start_screen import StartScreen
 from pixel_knit.core.pattern import Pattern
 from pixel_knit.ui.grid_canvas import ZOOM_STEP, GridCanvas
 from pixel_knit.ui.new_project_dialog import NewProjectDialog
+from pixel_knit.ui.palette_panel import PalettePanel
 
 WINDOW_NAME = "Pixel Knit"
 
@@ -24,11 +25,25 @@ class MainWindow(QMainWindow):
         self.current_path: str | None = None
 
         self.start_screen = StartScreen()
+        self.start_screen = StartScreen()
         self.canvas = GridCanvas()
+        self.palette_panel = PalettePanel()
+
+        self.editor = QWidget()
+        editor_layout = QHBoxLayout(self.editor)
+        editor_layout.setContentsMargins(0, 0, 0, 0)
+        editor_layout.setSpacing(0)
+        editor_layout.addWidget(self.canvas, 1)
+        editor_layout.addWidget(self.palette_panel)
+
         self.stack = QStackedWidget()
         self.stack.addWidget(self.start_screen)
-        self.stack.addWidget(self.canvas)
+        self.stack.addWidget(self.editor)
         self.setCentralWidget(self.stack)
+
+        self.palette_panel.colorSelected.connect(self.canvas.set_active_color)
+        self.canvas.paletteChanged.connect(self._refresh_palette)
+        self.canvas.set_active_color(self.palette_panel.active_color)
 
         self.start_screen.newRequested.connect(self.new_project)
         self.start_screen.openRequested.connect(self.open_dialog)
@@ -91,10 +106,14 @@ class MainWindow(QMainWindow):
 
     def _show_editor(self, pattern: Pattern):
         self.canvas.set_pattern(pattern)
-        self.stack.setCurrentWidget(self.canvas)
+        self._refresh_palette()
+        self.stack.setCurrentWidget(self.editor)
         self.setWindowTitle(f"Untitled - {WINDOW_NAME}")
         for act in self._editor_actions:
             act.setEnabled(True)
+    
+    def _refresh_palette(self):
+        self.palette_panel.set_palette(self.canvas.pattern.palette)
 
     def open_dialog(self):
         pass

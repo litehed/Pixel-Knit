@@ -1,4 +1,4 @@
-from PySide6.QtCore import QEvent, QPointF, QRectF, Qt
+from PySide6.QtCore import QEvent, QPointF, QRectF, Qt, Signal
 from PySide6.QtGui import QColor, QPainter, QPen
 from PySide6.QtWidgets import QWidget
 
@@ -13,12 +13,14 @@ GRID_LINE_MIN_CELL = 6
 
 
 class GridCanvas(QWidget):
+    paletteChanged = Signal()
+
     def __init__(self, pattern: Pattern | None = None, parent=None):
         super().__init__(parent)
         self.setObjectName("gridCanvas")
         self.setMinimumSize(300, 300)
         self.pattern = pattern or Pattern()
-        self.active_color = 1
+        self.active_color = "#222222"
         self._stroke_value: int | None = None
         self._zoom = 1.0
         self._pan = QPointF(0, 0)
@@ -96,6 +98,9 @@ class GridCanvas(QWidget):
         if self.pattern.set_cell(row, col, self._stroke_value):
             self.update()
 
+    def set_active_color(self, color: str) -> None:
+        self.active_color = color
+
     def paintEvent(self, event):
         p = self.pattern
         cell, x0, y0 = self._geometry()
@@ -149,7 +154,10 @@ class GridCanvas(QWidget):
             self.setCursor(Qt.CursorShape.ClosedHandCursor)
             return
         if event.button() == Qt.MouseButton.LeftButton:
-            self._stroke_value = self.active_color
+            palette_size = len(self.pattern.palette)
+            self._stroke_value = self.pattern.index_for(self.active_color)
+            if len(self.pattern.palette) != palette_size:
+                self.paletteChanged.emit()
         elif event.button() == Qt.MouseButton.RightButton:
             self._stroke_value = 0
         else:

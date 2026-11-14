@@ -17,3 +17,10 @@ class Pattern:
             return False
         self.cells[row][col] = value
         return True
+
+    def index_for(self, color: str) -> int:
+        color = color.lower()
+        if color in self.palette:
+            return self.palette.index(color)
+        self.palette.append(color)
+        return len(self.palette) - 1
