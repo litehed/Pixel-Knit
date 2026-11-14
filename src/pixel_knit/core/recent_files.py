@@ -8,6 +8,8 @@ _KEY = "recent_projects"
 
 def load_recent() -> list[str]:
     paths = QSettings().value(_KEY, [], type=list)
+    if isinstance(paths, str):
+        paths = [paths]
     if not isinstance(paths, list):
         return []
     return [p for p in paths if Path(p).exists()]

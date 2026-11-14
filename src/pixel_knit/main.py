@@ -8,6 +8,7 @@ STYLE_PATH = Path(__file__).parent / "resources" / "style.qss"
 
 def main():
     app = QApplication(sys.argv)
+    app.setOrganizationName("PixelKnit")
     app.setApplicationName("PixelKnit")
     app.setStyleSheet(STYLE_PATH.read_text(encoding="utf-8"))
     window = MainWindow()

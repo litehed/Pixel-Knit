@@ -12,7 +12,7 @@ from PySide6.QtWidgets import (
 )
 
 from pixel_knit.core.pattern import Pattern
-from pixel_knit.core.recent_files import load_recent, remove_recent
+from pixel_knit.core.recent_files import add_recent, load_recent, remove_recent
 from pixel_knit.core.storage import (
     EXTENSION,
     FILE_FILTER,
@@ -226,6 +226,7 @@ class MainWindow(QMainWindow):
         except PatternFileError as err:
             QMessageBox.warning(self, WINDOW_NAME, f"Couldn't open that file.\n\n{err}")
             return
+        add_recent(path)
         self._open_tab(pattern, path)
 
     def _remove_recent(self, path: str):
@@ -263,8 +264,10 @@ class MainWindow(QMainWindow):
         except OSError as err:
             QMessageBox.warning(self, WINDOW_NAME, f"Couldn't save the file.\n\n{err}")
             return False
+
         canvas.path = path
         canvas.dirty = False
+        add_recent(path)
         self._refresh_tab(canvas)
         return True
 
