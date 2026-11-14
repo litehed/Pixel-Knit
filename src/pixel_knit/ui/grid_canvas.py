@@ -31,6 +31,8 @@ class GridCanvas(QWidget):
         self._pan = QPointF(0, 0)
         self._panning = False
         self._last_pan_pos = QPointF()
+        self.path: str | None = None
+        self.dirty = False
 
     def set_pattern(self, pattern: Pattern) -> None:
         self.pattern = pattern

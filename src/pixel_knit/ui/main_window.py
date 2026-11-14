@@ -7,7 +7,8 @@ from PySide6.QtWidgets import (
     QFileDialog,
     QMainWindow,
     QMessageBox,
-    QStackedWidget,
+    QTabBar,
+    QTabWidget,
 )
 
 from pixel_knit.core.pattern import Pattern
@@ -32,11 +33,7 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.resize(900, 700)
 
-        self.current_path: str | None = None
-        self._dirty = False
-
         self.start_screen = StartScreen()
-        self.canvas = GridCanvas()
         self.palette_panel = PalettePanel()
 
         self.palette_dock = QDockWidget("Palette", self)
@@ -47,15 +44,18 @@ class MainWindow(QMainWindow):
         )
         self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.palette_dock)
 
-        self.stack = QStackedWidget()
-        self.stack.addWidget(self.start_screen)
-        self.stack.addWidget(self.canvas)
-        self.setCentralWidget(self.stack)
+        self.tabs = QTabWidget()
+        self.tabs.setObjectName("projectTabs")
+        self.tabs.setDocumentMode(True)
+        self.tabs.setTabsClosable(True)
+        self.tabs.addTab(self.start_screen, "Home")
+        bar = self.tabs.tabBar()
+        bar.setTabButton(0, QTabBar.ButtonPosition.LeftSide, None)
+        bar.setTabButton(0, QTabBar.ButtonPosition.RightSide, None)
+        self.setCentralWidget(self.tabs)
 
-        self.palette_panel.colorSelected.connect(self.canvas.set_active_color)
-        self.canvas.paletteChanged.connect(self._refresh_palette)
-        self.canvas.patternEdited.connect(self._on_pattern_edited)
-        self.canvas.set_active_color(self.palette_panel.active_color)
+        self.palette_panel.colorSelected.connect(self._on_color_selected)
+        self.tabs.tabCloseRequested.connect(self._close_tab)
 
         self.start_screen.newRequested.connect(self.new_project)
         self.start_screen.openRequested.connect(self.open_dialog)
@@ -63,7 +63,8 @@ class MainWindow(QMainWindow):
         self.start_screen.recentRemoveRequested.connect(self._remove_recent)
 
         self._build_menus()
-        self._show_start_screen()
+        self.tabs.currentChanged.connect(self._on_tab_changed)
+        self._on_tab_changed(0)
 
     # Menu and toolbar setup
     def _build_menus(self):
@@ -93,15 +94,15 @@ class MainWindow(QMainWindow):
 
         self.zoom_in_act = QAction("Zoom In", self)
         self.zoom_in_act.setShortcut(QKeySequence(QKeySequence.StandardKey.ZoomIn))
-        self.zoom_in_act.triggered.connect(lambda: self.canvas.zoom_by(ZOOM_STEP))
+        self.zoom_in_act.triggered.connect(lambda: self._zoom(ZOOM_STEP))
 
         self.zoom_out_act = QAction("Zoom Out", self)
         self.zoom_out_act.setShortcut(QKeySequence(QKeySequence.StandardKey.ZoomOut))
-        self.zoom_out_act.triggered.connect(lambda: self.canvas.zoom_by(1 / ZOOM_STEP))
+        self.zoom_out_act.triggered.connect(lambda: self._zoom(1 / ZOOM_STEP))
 
         self.fit_act = QAction("Fit to Window", self)
         self.fit_act.setShortcut(QKeySequence("Ctrl+0"))
-        self.fit_act.triggered.connect(self.canvas.reset_view)
+        self.fit_act.triggered.connect(self._fit_view)
 
         self.palette_act = self.palette_dock.toggleViewAction()
         view_menu.addActions([self.zoom_in_act, self.zoom_out_act, self.fit_act])
@@ -117,40 +118,98 @@ class MainWindow(QMainWindow):
             self.palette_act,
         ]
 
-    # Page transitions
-    def _show_start_screen(self):
-        self.start_screen.set_recent_projects(load_recent())
-        self.stack.setCurrentWidget(self.start_screen)
-        self.palette_dock.hide()
-        self.current_path = None
-        self._set_dirty(False)
-        self.setWindowTitle(WINDOW_NAME)
-        self.statusBar().clearMessage()
-        for act in self._editor_actions:
-            act.setEnabled(False)
+    # Tab helpers
+    def _current_canvas(self) -> GridCanvas | None:
+        widget = self.tabs.currentWidget()
+        return widget if isinstance(widget, GridCanvas) else None
 
-    def _show_editor(self, pattern: Pattern, path: str | None):
-        self.canvas.set_pattern(pattern)
-        self._refresh_palette()
-        self.palette_panel.reset_active_color()
-        self.current_path = path
-        self._set_dirty(False)
-        self._update_title()
-        self.stack.setCurrentWidget(self.canvas)
-        self.palette_dock.show()
+    @staticmethod
+    def _display_name(canvas: GridCanvas) -> str:
+        return Path(canvas.path).stem if canvas.path else "Untitled"
+
+    def _refresh_tab(self, canvas: GridCanvas):
+        marker = "*" if canvas.dirty else ""
+        self.tabs.setTabText(
+            self.tabs.indexOf(canvas), self._display_name(canvas) + marker
+        )
+        if canvas is self._current_canvas():
+            self.setWindowTitle(f"{self._display_name(canvas)}[*] - {WINDOW_NAME}")
+            self.setWindowModified(canvas.dirty)
+
+    def _on_tab_changed(self, index: int):
+        canvas = self._current_canvas()
+        on_project = canvas is not None
+        self.palette_dock.setVisible(on_project)
         for act in self._editor_actions:
-            act.setEnabled(True)
+            act.setEnabled(on_project)
+
+        if canvas is None:  # Home
+            self.start_screen.set_recent_projects(load_recent())
+            self.setWindowTitle(WINDOW_NAME)
+            self.setWindowModified(False)
+            return
+        canvas.set_active_color(self.palette_panel.active_color)
+        self._refresh_palette()
+        self._refresh_tab(canvas)
+
+    def _on_color_selected(self, color: str):
+        canvas = self._current_canvas()
+        if canvas:
+            canvas.set_active_color(color)
 
     def _refresh_palette(self):
-        # palette[0] is the background, so it isn't shown as a swatch
-        self.palette_panel.set_palette(self.canvas.pattern.palette[1:])
+        canvas = self._current_canvas()
+        if canvas:
+            # palette[0] is the background, so it isn't shown as a swatch
+            self.palette_panel.set_palette(canvas.pattern.palette[1:])
 
-    # project handling
+    def _on_pattern_edited(self, canvas: GridCanvas):
+        if not canvas.dirty:  # only the first edit after a save changes anything
+            canvas.dirty = True
+            self._refresh_tab(canvas)
+
+    def _find_tab(self, path: str) -> int | None:
+        for i in range(self.tabs.count()):
+            canvas = self.tabs.widget(i)
+            if (
+                isinstance(canvas, GridCanvas)
+                and canvas.path
+                and Path(canvas.path) == Path(path)
+            ):
+                return i
+        return None
+
+    def _open_tab(self, pattern: Pattern, path: str | None):
+        canvas = GridCanvas(pattern)
+        canvas.path = path
+        canvas.paletteChanged.connect(self._refresh_palette)
+        canvas.patternEdited.connect(lambda c=canvas: self._on_pattern_edited(c))
+        index = self.tabs.addTab(canvas, self._display_name(canvas))
+        self.tabs.setCurrentIndex(index)
+        self.palette_panel.reset_active_color()
+
+    def _close_tab(self, index: int):
+        canvas = self.tabs.widget(index)
+        if isinstance(canvas, GridCanvas) and self._confirm_discard(canvas):
+            self.tabs.removeTab(index)
+            canvas.deleteLater()
+
+    def _zoom(self, factor: float):
+        canvas = self._current_canvas()
+        if canvas is not None:
+            canvas.zoom_by(factor)
+
+    def _fit_view(self):
+        canvas = self._current_canvas()
+        if canvas is not None:
+            canvas.reset_view()
+
+    # project management
     def new_project(self):
         dialog = NewProjectDialog(self)
-        if dialog.exec() and self._confirm_discard():
+        if dialog.exec():
             width, height = dialog.grid_size
-            self._show_editor(Pattern(width=width, height=height), None)
+            self._open_tab(Pattern(width=width, height=height), None)
 
     def open_dialog(self):
         path, _ = QFileDialog.getOpenFileName(self, "Open pattern", "", FILE_FILTER)
@@ -158,27 +217,37 @@ class MainWindow(QMainWindow):
             self.open_project(path)
 
     def open_project(self, path: str):
-        if not self._confirm_discard():
+        existing = self._find_tab(path)
+        if existing is not None:
+            self.tabs.setCurrentIndex(existing)
             return
         try:
             pattern = load_pattern(path)
         except PatternFileError as err:
             QMessageBox.warning(self, WINDOW_NAME, f"Couldn't open that file.\n\n{err}")
             return
-        self._show_editor(pattern, path)
+        self._open_tab(pattern, path)
 
     def _remove_recent(self, path: str):
         remove_recent(path)
         self.start_screen.set_recent_projects(load_recent())
 
-    # Save handling
+    # Saving
     def save(self) -> bool:
-        if self.current_path is None:
-            return self.save_as()
-        return self._write(self.current_path)
+        canvas = self._current_canvas()
+        return canvas is not None and self._save(canvas)
 
     def save_as(self) -> bool:
-        suggested = self.current_path or f"Untitled{EXTENSION}"
+        canvas = self._current_canvas()
+        return canvas is not None and self._save_as(canvas)
+
+    def _save(self, canvas: GridCanvas) -> bool:
+        if canvas.path is None:
+            return self._save_as(canvas)
+        return self._write(canvas, canvas.path)
+
+    def _save_as(self, canvas: GridCanvas) -> bool:
+        suggested = canvas.path or f"Untitled{EXTENSION}"
         path, _ = QFileDialog.getSaveFileName(
             self, "Save pattern", suggested, FILE_FILTER
         )
@@ -186,40 +255,28 @@ class MainWindow(QMainWindow):
             return False
         if not path.lower().endswith(EXTENSION):
             path += EXTENSION
-        return self._write(path)
+        return self._write(canvas, path)
 
-    def _write(self, path: str) -> bool:
+    def _write(self, canvas: GridCanvas, path: str) -> bool:
         try:
-            save_pattern(self.canvas.pattern, path)
+            save_pattern(canvas.pattern, path)
         except OSError as err:
             QMessageBox.warning(self, WINDOW_NAME, f"Couldn't save the file.\n\n{err}")
             return False
-        self.current_path = path
-        self._set_dirty(False)
-        self._update_title()
+        canvas.path = path
+        canvas.dirty = False
+        self._refresh_tab(canvas)
         return True
 
-    # Handling edits and saving
-    def _on_pattern_edited(self):
-        self._set_dirty(True)
-
-    def _set_dirty(self, dirty: bool):
-        self._dirty = dirty
-        self.setWindowModified(dirty)
-
-    def _update_title(self):
-        name = Path(self.current_path).stem if self.current_path else "Untitled"
-        # Qt replaces the [*] marker with an asterisk while the window is modified
-        self.setWindowTitle(f"{name}[*] - {WINDOW_NAME}")
-
-    def _confirm_discard(self) -> bool:
-        if not self._dirty:
+    # Handling unsaved changes
+    def _confirm_discard(self, canvas: GridCanvas) -> bool:
+        if not canvas.dirty:
             return True
-        name = Path(self.current_path).stem if self.current_path else "Untitled"
+        self.tabs.setCurrentWidget(canvas)  # show which project is being asked about
         box = QMessageBox(self)
         box.setIcon(QMessageBox.Icon.Warning)
         box.setWindowTitle(WINDOW_NAME)
-        box.setText(f"Save changes to {name}?")
+        box.setText(f"Save changes to {self._display_name(canvas)}?")
         box.setInformativeText("Your changes will be lost if you don't save them.")
         box.setStandardButtons(
             QMessageBox.StandardButton.Save
@@ -229,11 +286,13 @@ class MainWindow(QMainWindow):
         box.setDefaultButton(QMessageBox.StandardButton.Save)
         choice = box.exec()
         if choice == QMessageBox.StandardButton.Save:
-            return self.save()
+            return self._save(canvas)
         return choice == QMessageBox.StandardButton.Discard
 
     def closeEvent(self, event: QCloseEvent):
-        if self._confirm_discard():
-            event.accept()
-        else:
-            event.ignore()
+        for i in range(self.tabs.count()):
+            canvas = self.tabs.widget(i)
+            if isinstance(canvas, GridCanvas) and not self._confirm_discard(canvas):
+                event.ignore()
+                return
+        event.accept()
