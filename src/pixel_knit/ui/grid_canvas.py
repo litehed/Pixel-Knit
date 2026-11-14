@@ -2,7 +2,8 @@ from PySide6.QtCore import QEvent, QPointF, QRectF, Qt, Signal
 from PySide6.QtGui import QColor, QPainter, QPen
 from PySide6.QtWidgets import QWidget
 
-from pixel_knit.core.pattern import Pattern
+from pixel_knit.core.pattern import DEFAULT_COLOR, Pattern
+from pixel_knit.ui.theme import BORDER, CANVAS_BACKGROUND
 
 MARGIN = 24
 MIN_ZOOM = 0.5
@@ -10,6 +11,9 @@ MAX_ZOOM = 40.0
 ZOOM_STEP = 1.25
 WHEEL_ZOOM_RATE = 1.0015
 GRID_LINE_MIN_CELL = 6
+
+PAINT = "paint"
+ERASE = "erase"
 
 
 class GridCanvas(QWidget):
@@ -21,8 +25,8 @@ class GridCanvas(QWidget):
         self.setObjectName("gridCanvas")
         self.setMinimumSize(300, 300)
         self.pattern = pattern or Pattern()
-        self.active_color = "#222222"
-        self._stroke_value: int | None = None
+        self.active_color = DEFAULT_COLOR
+        self._stroke: str | None = None  # PAINT or ERASE while a button is held
         self._zoom = 1.0
         self._pan = QPointF(0, 0)
         self._panning = False
@@ -32,6 +36,27 @@ class GridCanvas(QWidget):
         self.pattern = pattern
         self.reset_view()
 
+    def set_active_color(self, color: str) -> None:
+        self.active_color = color
+
+    def reset_view(self) -> None:
+        self._zoom = 1.0
+        self._pan = QPointF(0, 0)
+        self.update()
+
+    def zoom_by(self, factor: float) -> None:
+        self._zoom_at(QPointF(self.width() / 2, self.height() / 2), factor)
+
+    def cell_at(self, pos: QPointF) -> tuple[int, int] | None:
+        p = self.pattern
+        cell, x0, y0 = self._geometry()
+        col = int((pos.x() - x0) // cell)
+        row = p.height - 1 - int((pos.y() - y0) // cell)  # undo the bottom-up flip
+        if 0 <= col < p.width and 0 <= row < p.height:
+            return row, col
+        return None
+
+    # geometry and view transforms
     def _base_cell(self) -> float:
         p = self.pattern
         return min(
@@ -52,14 +77,6 @@ class GridCanvas(QWidget):
             max(-limit_x, min(limit_x, self._pan.x())),
             max(-limit_y, min(limit_y, self._pan.y())),
         )
-
-    def reset_view(self) -> None:
-        self._zoom = 1.0
-        self._pan = QPointF(0, 0)
-        self.update()
-
-    def zoom_by(self, factor: float) -> None:
-        self._zoom_at(QPointF(self.width() / 2, self.height() / 2), factor)
 
     def _zoom_at(self, pos: QPointF, factor: float) -> None:
         new_zoom = max(MIN_ZOOM, min(MAX_ZOOM, self._zoom * factor))
@@ -82,39 +99,39 @@ class GridCanvas(QWidget):
         self._clamp_pan()
         self.update()
 
-    def cell_at(self, pos: QPointF) -> tuple[int, int] | None:
-        p = self.pattern
-        cell, x0, y0 = self._geometry()
-        col = int((pos.x() - x0) // cell)
-        row = p.height - 1 - int((pos.y() - y0) // cell)  # undo the bottom-up flip
-        if 0 <= col < p.width and 0 <= row < p.height:
-            return row, col
-        return None
-
+    # Drawing cells
     def _apply_stroke(self, pos: QPointF) -> None:
         hit = self.cell_at(pos)
-        if hit is None or self._stroke_value is None:
+        if hit is None or self._stroke is None:
             return
+
+        if self._stroke == ERASE:
+            value = 0
+        else:
+            # Only add the color to the palette once a cell is actually painted
+            size = len(self.pattern.palette)
+            value = self.pattern.index_for(self.active_color)
+            if len(self.pattern.palette) != size:
+                self.paletteChanged.emit()
+
         row, col = hit
-        if self.pattern.set_cell(row, col, self._stroke_value):
+        if self.pattern.set_cell(row, col, value):
             self.update()
             self.patternEdited.emit()
 
-    def set_active_color(self, color: str) -> None:
-        self.active_color = color
-
+    # Drawing grid
     def paintEvent(self, event):
         p = self.pattern
         cell, x0, y0 = self._geometry()
         painter = QPainter(self)
-        painter.fillRect(self.rect(), QColor("#faf8f5"))
+        painter.fillRect(self.rect(), QColor(CANVAS_BACKGROUND))
 
         if cell >= GRID_LINE_MIN_CELL:
-            painter.setPen(QPen(QColor("#ddd5cc"), 1))
+            painter.setPen(QPen(QColor(BORDER), 1))
         else:
             painter.setPen(Qt.PenStyle.NoPen)
 
-        # Only loop over the cells that are actually on screen.
+        # Only loop over the cells that are actually on screen
         first_col = max(0, int((0 - x0) // cell))
         last_col = min(p.width - 1, int((self.width() - x0) // cell))
         first_screen_row = max(0, int((0 - y0) // cell))
@@ -127,6 +144,7 @@ class GridCanvas(QWidget):
                 painter.setBrush(QColor(p.palette[p.cells[row][col]]))
                 painter.drawRect(QRectF(x0 + col * cell, y, cell, cell))
 
+    # Input Events
     def wheelEvent(self, event):
         if event.modifiers() & Qt.KeyboardModifier.ControlModifier:
             factor = WHEEL_ZOOM_RATE ** event.angleDelta().y()
@@ -140,7 +158,7 @@ class GridCanvas(QWidget):
             self.update()
 
     def event(self, e):
-        # Mac trackpad pinch gestures
+        # Mac trackpad pinch arrives as a native gesture, not a wheel event.
         if (
             e.type() == QEvent.Type.NativeGesture
             and e.gestureType() == Qt.NativeGestureType.ZoomNativeGesture
@@ -150,18 +168,16 @@ class GridCanvas(QWidget):
         return super().event(e)
 
     def mousePressEvent(self, event):
-        if event.button() == Qt.MouseButton.MiddleButton:
+        button = event.button()
+        if button == Qt.MouseButton.MiddleButton:
             self._panning = True
             self._last_pan_pos = event.position()
             self.setCursor(Qt.CursorShape.ClosedHandCursor)
             return
-        if event.button() == Qt.MouseButton.LeftButton:
-            palette_size = len(self.pattern.palette)
-            self._stroke_value = self.pattern.index_for(self.active_color)
-            if len(self.pattern.palette) != palette_size:
-                self.paletteChanged.emit()
-        elif event.button() == Qt.MouseButton.RightButton:
-            self._stroke_value = 0
+        if button == Qt.MouseButton.LeftButton:
+            self._stroke = PAINT
+        elif button == Qt.MouseButton.RightButton:
+            self._stroke = ERASE
         else:
             return
         self._apply_stroke(event.position())
@@ -181,4 +197,4 @@ class GridCanvas(QWidget):
             self._panning = False
             self.unsetCursor()
             return
-        self._stroke_value = None
+        self._stroke = None

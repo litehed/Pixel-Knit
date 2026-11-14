@@ -17,6 +17,9 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from pixel_knit.core.pattern import DEFAULT_COLOR
+from pixel_knit.ui.theme import ACCENT, BORDER
+
 PANEL_WIDTH = 240
 SWATCH_SIZE = 24
 SWATCH_COLUMNS = 7
@@ -29,9 +32,7 @@ def _clamp01(value: float) -> float:
     return max(0.0, min(1.0, value))
 
 
-# Saturation/value square with a hue bar underneath
 class ColorPicker(QWidget):
-
     colorChanged = Signal(str)  # "#rrggbb"
 
     def __init__(self, parent=None):
@@ -39,8 +40,9 @@ class ColorPicker(QWidget):
         self.setFixedHeight(SV_HEIGHT + PICKER_GAP + HUE_HEIGHT)
         self._hue = 0.0
         self._sat = 0.0
-        self._val = 0.13
+        self._val = 0.0
         self._drag: str | None = None
+        self.set_color(DEFAULT_COLOR)
 
     def color_hex(self) -> str:
         return QColor.fromHsvF(self._hue, self._sat, self._val).name()
@@ -50,21 +52,18 @@ class ColorPicker(QWidget):
         if not qcolor.isValid():
             return
         hue = qcolor.hueF()
-        sat = qcolor.saturationF()
-        val = qcolor.valueF()
-        if hue >= 0:  # greys have no hue
+        if hue >= 0:  # greys have no hue, so keep the previous one
             self._hue = hue
-        self._sat, self._val = sat, val
+        self._sat = qcolor.saturationF()
+        self._val = qcolor.valueF()
         self.update()
 
-    # geometry helpers
     def _sv_rect(self) -> QRectF:
         return QRectF(0, 0, self.width(), SV_HEIGHT)
 
     def _hue_rect(self) -> QRectF:
         return QRectF(0, SV_HEIGHT + PICKER_GAP, self.width(), HUE_HEIGHT)
 
-    # painting stuff
     def paintEvent(self, event):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
@@ -141,6 +140,7 @@ class ColorPicker(QWidget):
 
 
 class PalettePanel(QWidget):
+
     colorSelected = Signal(str)  # "#rrggbb"
 
     def __init__(self, parent=None):
@@ -149,7 +149,7 @@ class PalettePanel(QWidget):
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         self.setMinimumWidth(PANEL_WIDTH)
 
-        self._active = "#222222"
+        self._active = DEFAULT_COLOR
         self._swatches: list[QPushButton] = []
 
         self._build_ui()
@@ -160,7 +160,6 @@ class PalettePanel(QWidget):
         return self._active
 
     def set_palette(self, colors: list[str]) -> None:
-        """Show swatches for these colors (the background is excluded by the caller)."""
         while self._grid.count():
             item = self._grid.takeAt(0)
             widget = item.widget() if item is not None else None
@@ -177,13 +176,17 @@ class PalettePanel(QWidget):
             swatch.setProperty("color", color)
             swatch.setStyleSheet(
                 f"QPushButton#swatch {{ background: {color}; padding: 0;"
-                " border: 1px solid #ddd5cc; border-radius: 5px; }"
-                "QPushButton#swatch:checked { border: 2px solid #c2566b; }"
+                f" border: 1px solid {BORDER}; border-radius: 5px; }}"
+                f"QPushButton#swatch:checked {{ border: 2px solid {ACCENT}; }}"
             )
             swatch.clicked.connect(lambda _=False, c=color: self._on_swatch_clicked(c))
             self._grid.addWidget(swatch, i // SWATCH_COLUMNS, i % SWATCH_COLUMNS)
             self._swatches.append(swatch)
         self._refresh_selection()
+
+    def reset_active_color(self) -> None:
+        self._set_active(DEFAULT_COLOR, sync_picker=True)
+        self.colorSelected.emit(DEFAULT_COLOR)
 
     def _build_ui(self) -> None:
         palette_heading = QLabel("PALETTE")
@@ -219,14 +222,13 @@ class PalettePanel(QWidget):
         layout.addLayout(hex_row)
         layout.addStretch(1)
 
-    # state management
     def _set_active(self, color: str, *, sync_picker: bool) -> None:
         self._active = color
         if sync_picker:
             self.picker.set_color(color)
         self.hex_edit.setText(color)
         self.preview.setStyleSheet(
-            f"background: {color}; border: 1px solid #ddd5cc; border-radius: 6px;"
+            f"background: {color}; border: 1px solid {BORDER}; border-radius: 6px;"
         )
         self._refresh_selection()
 
@@ -234,7 +236,6 @@ class PalettePanel(QWidget):
         for swatch in self._swatches:
             swatch.setChecked(swatch.property("color") == self._active)
 
-    # input handling
     def _on_swatch_clicked(self, color: str) -> None:
         self._set_active(color, sync_picker=True)
         self.colorSelected.emit(color)

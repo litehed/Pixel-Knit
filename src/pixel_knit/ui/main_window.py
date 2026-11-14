@@ -1,16 +1,16 @@
 from pathlib import Path
 
+from PySide6.QtCore import Qt
+from PySide6.QtGui import QAction, QCloseEvent, QKeySequence
 from PySide6.QtWidgets import (
     QDockWidget,
     QFileDialog,
     QMainWindow,
     QMessageBox,
     QStackedWidget,
-    QWidget,
-    QHBoxLayout,
 )
-from PySide6.QtGui import QAction, QCloseEvent, QKeySequence, Qt
 
+from pixel_knit.core.pattern import Pattern
 from pixel_knit.core.recent_files import load_recent, remove_recent
 from pixel_knit.core.storage import (
     EXTENSION,
@@ -19,11 +19,10 @@ from pixel_knit.core.storage import (
     load_pattern,
     save_pattern,
 )
-from pixel_knit.ui.start_screen import StartScreen
-from pixel_knit.core.pattern import Pattern
 from pixel_knit.ui.grid_canvas import ZOOM_STEP, GridCanvas
 from pixel_knit.ui.new_project_dialog import NewProjectDialog
 from pixel_knit.ui.palette_panel import PalettePanel
+from pixel_knit.ui.start_screen import StartScreen
 
 WINDOW_NAME = "Pixel Knit"
 
@@ -66,6 +65,7 @@ class MainWindow(QMainWindow):
         self._build_menus()
         self._show_start_screen()
 
+    # Menu and toolbar setup
     def _build_menus(self):
         file_menu = self.menuBar().addMenu("&File")
 
@@ -107,17 +107,17 @@ class MainWindow(QMainWindow):
         view_menu.addActions([self.zoom_in_act, self.zoom_out_act, self.fit_act])
         view_menu.addAction(self.palette_act)
 
+        # Actions that only make sense while a pattern is open
         self._editor_actions = [
+            self.save_act,
+            self.save_as_act,
             self.zoom_in_act,
             self.zoom_out_act,
             self.fit_act,
             self.palette_act,
         ]
 
-    def _remove_recent(self, path):
-        remove_recent(path)
-        self.start_screen.set_recent_projects(load_recent())
-
+    # Page transitions
     def _show_start_screen(self):
         self.start_screen.set_recent_projects(load_recent())
         self.stack.setCurrentWidget(self.start_screen)
@@ -129,7 +129,23 @@ class MainWindow(QMainWindow):
         for act in self._editor_actions:
             act.setEnabled(False)
 
-    # Project actions
+    def _show_editor(self, pattern: Pattern, path: str | None):
+        self.canvas.set_pattern(pattern)
+        self._refresh_palette()
+        self.palette_panel.reset_active_color()
+        self.current_path = path
+        self._set_dirty(False)
+        self._update_title()
+        self.stack.setCurrentWidget(self.canvas)
+        self.palette_dock.show()
+        for act in self._editor_actions:
+            act.setEnabled(True)
+
+    def _refresh_palette(self):
+        # palette[0] is the background, so it isn't shown as a swatch
+        self.palette_panel.set_palette(self.canvas.pattern.palette[1:])
+
+    # project handling
     def new_project(self):
         dialog = NewProjectDialog(self)
         if dialog.exec() and self._confirm_discard():
@@ -151,24 +167,11 @@ class MainWindow(QMainWindow):
             return
         self._show_editor(pattern, path)
 
-    def close_project(self):
-        if self._confirm_discard():
-            self._show_start_screen()
+    def _remove_recent(self, path: str):
+        remove_recent(path)
+        self.start_screen.set_recent_projects(load_recent())
 
-    def _show_editor(self, pattern: Pattern, path: str | None):
-        self.canvas.set_pattern(pattern)
-        self._refresh_palette()
-        self.current_path = path
-        self._set_dirty(False)
-        self._update_title()
-        self.stack.setCurrentWidget(self.canvas)
-        self.palette_dock.show()
-        for act in self._editor_actions:
-            act.setEnabled(True)
-
-    def _refresh_palette(self):
-        self.palette_panel.set_palette(self.canvas.pattern.palette)
-
+    # Save handling
     def save(self) -> bool:
         if self.current_path is None:
             return self.save_as()
@@ -196,6 +199,7 @@ class MainWindow(QMainWindow):
         self._update_title()
         return True
 
+    # Handling edits and saving
     def _on_pattern_edited(self):
         self._set_dirty(True)
 
@@ -205,7 +209,7 @@ class MainWindow(QMainWindow):
 
     def _update_title(self):
         name = Path(self.current_path).stem if self.current_path else "Untitled"
-        # Qt replacesthe marker with an * while the window is modified
+        # Qt replaces the [*] marker with an asterisk while the window is modified
         self.setWindowTitle(f"{name}[*] - {WINDOW_NAME}")
 
     def _confirm_discard(self) -> bool:
