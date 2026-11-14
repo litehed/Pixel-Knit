@@ -26,3 +26,18 @@ class Pattern:
             return self.palette.index(color)
         self.palette.append(color)
         return len(self.palette) - 1
+    
+    def set_background(self, color: str) -> bool:
+        color = color.lower()
+        if color == self.palette[0]:
+            return False
+        if color in self.palette:
+            # The color is already used by painted cells
+            dup = self.palette.index(color)
+            self.cells = [
+                [0 if i == dup else (i - 1 if i > dup else i) for i in row]
+                for row in self.cells
+            ]
+            del self.palette[dup]
+        self.palette[0] = color
+        return True

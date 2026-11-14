@@ -56,6 +56,7 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(self.tabs)
 
         self.palette_panel.colorSelected.connect(self._on_color_selected)
+        self.palette_panel.backgroundRequested.connect(self._on_background_requested)
         self.tabs.tabCloseRequested.connect(self._close_tab)
 
         self.start_screen.newRequested.connect(self.new_project)
@@ -159,11 +160,16 @@ class MainWindow(QMainWindow):
         if canvas:
             canvas.set_active_color(color)
 
+    def _on_background_requested(self, color: str):
+        canvas = self._current_canvas()
+        if canvas:
+            canvas.set_background(color)
+
     def _refresh_palette(self):
         canvas = self._current_canvas()
         if canvas:
-            # palette[0] is the background, so it isn't shown as a swatch
             self.palette_panel.set_palette(canvas.pattern.palette[1:])
+            self.palette_panel.set_background(canvas.pattern.palette[0])
 
     def _on_pattern_edited(self, canvas: GridCanvas):
         if not canvas.dirty:  # only the first edit after a save changes anything

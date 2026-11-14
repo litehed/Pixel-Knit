@@ -6,7 +6,7 @@ from pathlib import Path
 from pixel_knit.core.pattern import Pattern
 
 EXTENSION = ".pknit"
-FILE_FILTER = "Pixel Knit patterns (*.pknit)"
+FILE_FILTER = "Pixel Knit Patterns (*.pknit)"
 
 FORMAT_NAME = "pixel-knit"
 FORMAT_VERSION = 1

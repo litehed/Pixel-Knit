@@ -140,8 +140,8 @@ class ColorPicker(QWidget):
 
 
 class PalettePanel(QWidget):
-
     colorSelected = Signal(str)  # "#rrggbb"
+    backgroundRequested = Signal(str)  # "#rrggbb"
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -158,6 +158,11 @@ class PalettePanel(QWidget):
     @property
     def active_color(self) -> str:
         return self._active
+
+    def set_background(self, color: str) -> None:
+        self.background_preview.setStyleSheet(
+            f"background: {color}; border: 1px solid {BORDER}; border-radius: 6px;"
+        )
 
     def set_palette(self, colors: list[str]) -> None:
         while self._grid.count():
@@ -195,6 +200,21 @@ class PalettePanel(QWidget):
         self._grid.setSpacing(6)
         self._grid.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
 
+        background_heading = QLabel("BACKGROUND")
+        background_heading.setObjectName("sectionHeading")
+
+        self.background_preview = QWidget()
+        self.background_preview.setFixedSize(32, 32)
+        background_btn = QPushButton("Use selected color")
+        background_btn.clicked.connect(
+            lambda: self.backgroundRequested.emit(self._active)
+        )
+
+        background_row = QHBoxLayout()
+        background_row.setSpacing(10)
+        background_row.addWidget(self.background_preview)
+        background_row.addWidget(background_btn, 1)
+
         color_heading = QLabel("COLOR")
         color_heading.setObjectName("sectionHeading")
         self.picker = ColorPicker()
@@ -217,6 +237,8 @@ class PalettePanel(QWidget):
         layout.addWidget(palette_heading)
         layout.addLayout(self._grid)
         layout.addSpacing(16)
+        layout.addWidget(background_heading)
+        layout.addLayout(background_row)
         layout.addWidget(color_heading)
         layout.addWidget(self.picker)
         layout.addLayout(hex_row)

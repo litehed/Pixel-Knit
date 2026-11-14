@@ -122,6 +122,12 @@ class GridCanvas(QWidget):
             self.patternEdited.emit()
 
     # Drawing grid
+    def set_background(self, color: str) -> None:
+        if self.pattern.set_background(color):
+            self.update()
+            self.paletteChanged.emit()
+            self.patternEdited.emit()
+
     def paintEvent(self, event):
         p = self.pattern
         cell, x0, y0 = self._geometry()
