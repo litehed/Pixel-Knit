@@ -1,7 +1,14 @@
 from pathlib import Path
 
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QAction, QCloseEvent, QKeySequence, QPixmap
+from PySide6.QtGui import (
+    QAction,
+    QCloseEvent,
+    QKeySequence,
+    QPixmap,
+    QUndoGroup,
+    QUndoStack,
+)
 from PySide6.QtWidgets import (
     QDockWidget,
     QFileDialog,
@@ -65,6 +72,11 @@ class MainWindow(QMainWindow):
         self.start_screen.recentChosen.connect(self.open_project)
         self.start_screen.recentRemoveRequested.connect(self._remove_recent)
 
+        self.undo_group = QUndoGroup(self)
+        # always empty keeps Undo/Redo disabled on Home tab
+        self._home_stack = QUndoStack(self)
+        self.undo_group.addStack(self._home_stack)
+
         self._build_menus()
         self._build_toolbar()
         self.tabs.currentChanged.connect(self._on_tab_changed)
@@ -94,6 +106,13 @@ class MainWindow(QMainWindow):
         file_menu.addActions([new_act, open_act])
         file_menu.addSeparator()
         file_menu.addActions([self.save_act, self.save_as_act])
+
+        edit_menu = self.menuBar().addMenu("&Edit")
+        undo_act = self.undo_group.createUndoAction(self)
+        undo_act.setShortcut(QKeySequence(QKeySequence.StandardKey.Undo))
+        redo_act = self.undo_group.createRedoAction(self)
+        redo_act.setShortcut(QKeySequence(QKeySequence.StandardKey.Redo))
+        edit_menu.addActions([undo_act, redo_act])
 
         view_menu = self.menuBar().addMenu("&View")
 
@@ -209,6 +228,9 @@ class MainWindow(QMainWindow):
 
     def _on_tab_changed(self, index: int):
         canvas = self._current_canvas()
+        self.undo_group.setActiveStack(
+            canvas.undo_stack if canvas is not None else self._home_stack
+        )
         on_project = canvas is not None
         self.palette_dock.setVisible(on_project)
         for act in self._editor_actions:
@@ -241,11 +263,6 @@ class MainWindow(QMainWindow):
             self.palette_panel.set_palette(canvas.pattern.palette[1:])
             self.palette_panel.set_background(canvas.pattern.palette[0])
 
-    def _on_pattern_edited(self, canvas: GridCanvas):
-        if not canvas.dirty:  # only the first edit after a save changes anything
-            canvas.dirty = True
-            self._refresh_tab(canvas)
-
     def _find_tab(self, path: str) -> int | None:
         for i in range(self.tabs.count()):
             canvas = self.tabs.widget(i)
@@ -261,7 +278,10 @@ class MainWindow(QMainWindow):
         canvas = GridCanvas(pattern)
         canvas.path = path
         canvas.paletteChanged.connect(self._refresh_palette)
-        canvas.patternEdited.connect(lambda c=canvas: self._on_pattern_edited(c))
+        canvas.undo_stack.cleanChanged.connect(
+            lambda _clean, c=canvas: self._refresh_tab(c)
+        )
+        self.undo_group.addStack(canvas.undo_stack)
         canvas.viewerChanged.connect(self._sync_viewer_ui)
         canvas.rowChanged.connect(self._sync_viewer_ui)
         index = self.tabs.addTab(canvas, self._display_name(canvas))
@@ -361,7 +381,7 @@ class MainWindow(QMainWindow):
             return False
 
         canvas.path = path
-        canvas.dirty = False
+        canvas.undo_stack.setClean()
         add_recent(path)
         self._refresh_tab(canvas)
         return True

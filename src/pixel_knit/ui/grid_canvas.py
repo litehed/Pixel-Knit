@@ -1,7 +1,8 @@
 from PySide6.QtCore import QEvent, QPointF, QRectF, Qt, Signal
-from PySide6.QtGui import QColor, QPainter, QPen
+from PySide6.QtGui import QColor, QPainter, QPen, QUndoStack
 from PySide6.QtWidgets import QWidget
 
+from pixel_knit.core.commands import SetBackgroundCommand, StrokeCommand
 from pixel_knit.core.pattern import DEFAULT_COLOR, Pattern
 from pixel_knit.ui.theme import ACCENT, BORDER, CANVAS_BACKGROUND
 
@@ -20,7 +21,6 @@ ERASE = "erase"
 
 class GridCanvas(QWidget):
     paletteChanged = Signal()
-    patternEdited = Signal()
     viewerChanged = Signal()
     rowChanged = Signal()
 
@@ -36,17 +36,28 @@ class GridCanvas(QWidget):
         self._panning = False
         self._last_pan_pos = QPointF()
         self.path: str | None = None
-        self.dirty = False
+        self.undo_stack = QUndoStack(self)
+        self.undo_stack.indexChanged.connect(self._on_stack_changed)
+        self._stroke_changes: dict[tuple[int, int], tuple[int, int]] = {}
         self._viewer = False
         self._isolated = False
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
 
     def set_pattern(self, pattern: Pattern) -> None:
         self.pattern = pattern
+        self.undo_stack.clear()
         self.reset_view()
 
     def set_active_color(self, color: str) -> None:
         self.active_color = color
+
+    @property
+    def dirty(self) -> bool:
+        return not self.undo_stack.isClean()
+
+    def _on_stack_changed(self, _index: int = 0) -> None:
+        self.update()
+        self.paletteChanged.emit()
 
     @property
     def viewer_mode(self) -> bool:
@@ -175,16 +186,16 @@ class GridCanvas(QWidget):
                 self.paletteChanged.emit()
 
         row, col = hit
+        old = self.pattern.cells[row][col]
         if self.pattern.set_cell(row, col, value):
+            self._stroke_changes[(row, col)] = (old, value)
             self.update()
-            self.patternEdited.emit()
 
     # Drawing grid
     def set_background(self, color: str) -> None:
-        if self.pattern.set_background(color):
-            self.update()
-            self.paletteChanged.emit()
-            self.patternEdited.emit()
+        color = color.lower()
+        if color != self.pattern.palette[0]:
+            self.undo_stack.push(SetBackgroundCommand(self.pattern, color))
 
     def _paint_row_focus(self, painter: QPainter, cell: float, x0: float, y0: float):
         p = self.pattern
@@ -286,12 +297,27 @@ class GridCanvas(QWidget):
             return
         self._apply_stroke(event.position())
 
+    def _finish_stroke(self) -> None:
+        changes, self._stroke_changes = self._stroke_changes, {}
+        stroke, self._stroke = self._stroke, None
+        if not changes:
+            return
+        palette = self.pattern.palette
+        by_color = {
+            pos: (palette[old], palette[new]) for pos, (old, new) in changes.items()
+        }
+        self.undo_stack.push(
+            StrokeCommand(
+                self.pattern, by_color, "Paint" if stroke == PAINT else "Erase"
+            )
+        )
+
     def mouseReleaseEvent(self, event):
         if event.button() == Qt.MouseButton.MiddleButton:
             self._panning = False
             self.unsetCursor()
             return
-        self._stroke = None
+        self._finish_stroke()
 
     def keyPressEvent(self, event):
         if self._viewer and event.key() == Qt.Key.Key_Up:
