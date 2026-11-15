@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QTimer, Qt
 from PySide6.QtGui import (
     QAction,
     QCloseEvent,
@@ -26,6 +26,7 @@ from pixel_knit.core.storage import (
     FILE_FILTER,
     PatternFileError,
     load_pattern,
+    save_current_row,
     save_pattern,
 )
 from pixel_knit.ui.grid_canvas import ZOOM_STEP, GridCanvas
@@ -76,6 +77,12 @@ class MainWindow(QMainWindow):
         # always empty keeps Undo/Redo disabled on Home tab
         self._home_stack = QUndoStack(self)
         self.undo_group.addStack(self._home_stack)
+
+        self._pending_row_saves: set[GridCanvas] = set()
+        self._row_save_timer = QTimer(self)
+        self._row_save_timer.setSingleShot(True)
+        self._row_save_timer.setInterval(500)
+        self._row_save_timer.timeout.connect(self._flush_row_saves)
 
         self._build_menus()
         self._build_toolbar()
@@ -284,11 +291,13 @@ class MainWindow(QMainWindow):
         self.undo_group.addStack(canvas.undo_stack)
         canvas.viewerChanged.connect(self._sync_viewer_ui)
         canvas.rowChanged.connect(self._sync_viewer_ui)
+        canvas.rowChanged.connect(lambda c=canvas: self._queue_row_save(c))
         index = self.tabs.addTab(canvas, self._display_name(canvas))
         self.tabs.setCurrentIndex(index)
         self.palette_panel.reset_active_color()
 
     def _close_tab(self, index: int):
+        self._flush_row_saves()
         canvas = self.tabs.widget(index)
         if isinstance(canvas, GridCanvas) and self._confirm_discard(canvas):
             self.tabs.removeTab(index)
@@ -386,6 +395,21 @@ class MainWindow(QMainWindow):
         self._refresh_tab(canvas)
         return True
 
+    def _queue_row_save(self, canvas: GridCanvas):
+        if canvas.path:
+            self._pending_row_saves.add(canvas)
+            self._row_save_timer.start()  # restarts the countdown
+
+    def _flush_row_saves(self):
+        self._row_save_timer.stop()
+        pending, self._pending_row_saves = self._pending_row_saves, set()
+        for canvas in pending:
+            if canvas.path:
+                try:
+                    save_current_row(canvas.path, canvas.current_row)
+                except (OSError, ValueError):
+                    pass
+
     # Handling unsaved changes
     def _confirm_discard(self, canvas: GridCanvas) -> bool:
         if not canvas.dirty:
@@ -413,4 +437,5 @@ class MainWindow(QMainWindow):
             if isinstance(canvas, GridCanvas) and not self._confirm_discard(canvas):
                 event.ignore()
                 return
+        self._flush_row_saves()
         event.accept()
