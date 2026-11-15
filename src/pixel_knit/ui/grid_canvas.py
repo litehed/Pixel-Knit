@@ -3,7 +3,9 @@ from PySide6.QtGui import QColor, QPainter, QPen
 from PySide6.QtWidgets import QWidget
 
 from pixel_knit.core.pattern import DEFAULT_COLOR, Pattern
-from pixel_knit.ui.theme import BORDER, CANVAS_BACKGROUND
+from pixel_knit.ui.theme import ACCENT, BORDER, CANVAS_BACKGROUND
+
+DIM_ALPHA = 150
 
 MARGIN = 24
 MIN_ZOOM = 0.5
@@ -19,6 +21,8 @@ ERASE = "erase"
 class GridCanvas(QWidget):
     paletteChanged = Signal()
     patternEdited = Signal()
+    viewerChanged = Signal()
+    rowChanged = Signal()
 
     def __init__(self, pattern: Pattern | None = None, parent=None):
         super().__init__(parent)
@@ -33,6 +37,8 @@ class GridCanvas(QWidget):
         self._last_pan_pos = QPointF()
         self.path: str | None = None
         self.dirty = False
+        self._viewer = False
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
 
     def set_pattern(self, pattern: Pattern) -> None:
         self.pattern = pattern
@@ -40,6 +46,33 @@ class GridCanvas(QWidget):
 
     def set_active_color(self, color: str) -> None:
         self.active_color = color
+
+    @property
+    def viewer_mode(self) -> bool:
+        return self._viewer
+
+    @property
+    def current_row(self) -> int:
+        return self.pattern.current_row
+
+    def set_viewer_mode(self, enabled: bool) -> None:
+        if enabled == self._viewer:
+            return
+        self._viewer = enabled
+        if enabled:
+            self.setFocus()
+        self.update()
+        self.viewerChanged.emit()
+
+    def set_row(self, row: int) -> None:
+        row = row % self.pattern.height
+        if row != self.pattern.current_row:
+            self.pattern.current_row = row
+            self.update()
+            self.rowChanged.emit()
+
+    def move_row(self, delta: int) -> None:
+        self.set_row(self.pattern.current_row + delta)
 
     def reset_view(self) -> None:
         self._zoom = 1.0
@@ -128,6 +161,21 @@ class GridCanvas(QWidget):
             self.paletteChanged.emit()
             self.patternEdited.emit()
 
+    def _paint_row_focus(self, painter: QPainter, cell: float, x0: float, y0: float):
+        p = self.pattern
+        width = cell * p.width
+        y = y0 + (p.height - 1 - p.current_row) * cell
+        grid_bottom = y0 + p.height * cell
+
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(QColor(0, 0, 0, DIM_ALPHA))
+        painter.drawRect(QRectF(x0, y0, width, y - y0))
+        painter.drawRect(QRectF(x0, y + cell, width, grid_bottom - y - cell))
+
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.setPen(QPen(QColor(ACCENT), 2))
+        painter.drawRect(QRectF(x0, y, width, cell))
+
     def paintEvent(self, event):
         p = self.pattern
         cell, x0, y0 = self._geometry()
@@ -151,6 +199,9 @@ class GridCanvas(QWidget):
             for col in range(first_col, last_col + 1):
                 painter.setBrush(QColor(p.palette[p.cells[row][col]]))
                 painter.drawRect(QRectF(x0 + col * cell, y, cell, cell))
+
+        if self._viewer:
+            self._paint_row_focus(painter, cell, x0, y0)
 
     # Input Events
     def wheelEvent(self, event):
@@ -182,6 +233,12 @@ class GridCanvas(QWidget):
             self._last_pan_pos = event.position()
             self.setCursor(Qt.CursorShape.ClosedHandCursor)
             return
+        if self._viewer:
+            if button == Qt.MouseButton.LeftButton:
+                hit = self.cell_at(event.position())
+                if hit is not None:
+                    self.set_row(hit[0])
+            return
         if button == Qt.MouseButton.LeftButton:
             self._stroke = PAINT
         elif button == Qt.MouseButton.RightButton:
@@ -206,3 +263,11 @@ class GridCanvas(QWidget):
             self.unsetCursor()
             return
         self._stroke = None
+
+    def keyPressEvent(self, event):
+        if self._viewer and event.key() == Qt.Key.Key_Up:
+            self.move_row(1)
+        elif self._viewer and event.key() == Qt.Key.Key_Down:
+            self.move_row(-1)
+        else:
+            super().keyPressEvent(event)

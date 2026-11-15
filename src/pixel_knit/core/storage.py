@@ -27,10 +27,11 @@ def save_pattern(pattern: Pattern, path: str) -> None:
         "height": pattern.height,
         "palette": pattern.palette,
         "cells": pattern.cells,
+        "current_row": pattern.current_row,
     }
     target = Path(path)
     # Write to a temp file first, then swap it in, so a crash or full disk
-    # mid-save can't leave a half-written (corrupt) pattern behind.
+    # mid-save cant leave a half-written (corrupt) pattern behind.
     temp = target.with_name(target.name + ".tmp")
     temp.write_text(json.dumps(data), encoding="utf-8")
     os.replace(temp, target)
@@ -85,7 +86,13 @@ def _parse(data) -> Pattern:
             raise PatternFileError("The pattern's grid contains invalid cells.")
 
     assert isinstance(width, int) and isinstance(height, int)
-    return Pattern(width=width, height=height, palette=palette, cells=cells)
+    row = data.get("current_row", 0)
+    if not isinstance(row, int) or not 0 <= row < height:
+        row = 0
+
+    return Pattern(
+        width=width, height=height, palette=palette, cells=cells, current_row=row
+    )
 
 
 def _is_dimension(value) -> bool:

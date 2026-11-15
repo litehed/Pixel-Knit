@@ -5,6 +5,7 @@ from PySide6.QtGui import QAction, QCloseEvent, QKeySequence, QPixmap
 from PySide6.QtWidgets import (
     QDockWidget,
     QFileDialog,
+    QLabel,
     QMainWindow,
     QMessageBox,
     QTabBar,
@@ -65,6 +66,7 @@ class MainWindow(QMainWindow):
         self.start_screen.recentRemoveRequested.connect(self._remove_recent)
 
         self._build_menus()
+        self._build_toolbar()
         self.tabs.currentChanged.connect(self._on_tab_changed)
         self._thumb_cache: dict[str, tuple[float, QPixmap]] = {}
         self._on_tab_changed(0)
@@ -121,6 +123,58 @@ class MainWindow(QMainWindow):
             self.palette_act,
         ]
 
+    def _build_toolbar(self):
+        toolbar = self.addToolBar("View")
+        toolbar.setObjectName("viewToolbar")
+        toolbar.setMovable(False)
+
+        self.viewer_act = QAction("View Mode", self)
+        self.viewer_act.setCheckable(True)
+        self.viewer_act.setShortcut(QKeySequence("V"))
+        self.viewer_act.setToolTip("Follow the chart row by row (V)")
+        self.viewer_act.triggered.connect(self._set_viewer_mode)
+
+        self.row_down_act = QAction("Row ▼", self)
+        self.row_down_act.setToolTip("Previous row (Down)")
+        self.row_down_act.triggered.connect(lambda: self._move_row(-1))
+
+        self.row_up_act = QAction("Row ▲", self)
+        self.row_up_act.setToolTip("Next row (Up)")
+        self.row_up_act.triggered.connect(lambda: self._move_row(+1))
+
+        self.row_label = QLabel()
+        self.row_label.setObjectName("rowLabel")
+
+        toolbar.addAction(self.viewer_act)
+        toolbar.addSeparator()
+        toolbar.addAction(self.row_down_act)
+        toolbar.addAction(self.row_up_act)
+        toolbar.addWidget(self.row_label)
+
+    def _set_viewer_mode(self, enabled: bool):
+        canvas = self._current_canvas()
+        if canvas is not None:
+            canvas.set_viewer_mode(enabled)
+
+    def _move_row(self, delta: int):
+        canvas = self._current_canvas()
+        if canvas is not None:
+            canvas.move_row(delta)
+
+    def _sync_viewer_ui(self):
+        canvas = self._current_canvas()
+        viewing = canvas is not None and canvas.viewer_mode
+        self.viewer_act.setEnabled(canvas is not None)
+        self.viewer_act.setChecked(viewing)
+        self.row_up_act.setEnabled(viewing)
+        self.row_down_act.setEnabled(viewing)
+        if canvas is not None and viewing:
+            self.row_label.setText(
+                f"Row {canvas.current_row + 1} of {canvas.pattern.height}"
+            )
+        else:
+            self.row_label.setText("")
+
     # Tab helpers
     def _current_canvas(self) -> GridCanvas | None:
         widget = self.tabs.currentWidget()
@@ -145,6 +199,7 @@ class MainWindow(QMainWindow):
         self.palette_dock.setVisible(on_project)
         for act in self._editor_actions:
             act.setEnabled(on_project)
+        self._sync_viewer_ui()
 
         if canvas is None:  # Home
             self.start_screen.set_recent_projects(self._recent_entries())
@@ -152,6 +207,7 @@ class MainWindow(QMainWindow):
             self.setWindowModified(False)
             return
         canvas.set_active_color(self.palette_panel.active_color)
+        canvas.setFocus()
         self._refresh_palette()
         self._refresh_tab(canvas)
 
@@ -192,6 +248,8 @@ class MainWindow(QMainWindow):
         canvas.path = path
         canvas.paletteChanged.connect(self._refresh_palette)
         canvas.patternEdited.connect(lambda c=canvas: self._on_pattern_edited(c))
+        canvas.viewerChanged.connect(self._sync_viewer_ui)
+        canvas.rowChanged.connect(self._sync_viewer_ui)
         index = self.tabs.addTab(canvas, self._display_name(canvas))
         self.tabs.setCurrentIndex(index)
         self.palette_panel.reset_active_color()

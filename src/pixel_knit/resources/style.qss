@@ -102,3 +102,8 @@ QDockWidget::title {
 #recentThumb {
     background: transparent;
 }
+
+#rowLabel {
+    padding: 0 10px;
+    color: #8a817a;
+}

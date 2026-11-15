@@ -9,6 +9,7 @@ class Pattern:
     height: int = 17
     palette: list[str] = field(default_factory=lambda: ["#ffffff", DEFAULT_COLOR])
     cells: list[list[int]] = field(default_factory=list)
+    current_row: int = 0
 
     def __post_init__(self):
         if not self.cells:
@@ -26,7 +27,7 @@ class Pattern:
             return self.palette.index(color)
         self.palette.append(color)
         return len(self.palette) - 1
-    
+
     def set_background(self, color: str) -> bool:
         color = color.lower()
         if color == self.palette[0]:
