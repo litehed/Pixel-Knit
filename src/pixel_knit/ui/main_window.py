@@ -134,6 +134,12 @@ class MainWindow(QMainWindow):
         self.viewer_act.setToolTip("Follow the chart row by row (V)")
         self.viewer_act.triggered.connect(self._set_viewer_mode)
 
+        self.isolate_act = QAction("Isolate Row", self)
+        self.isolate_act.setCheckable(True)
+        self.isolate_act.setShortcut(QKeySequence("I"))
+        self.isolate_act.setToolTip("Show only the current row (I)")
+        self.isolate_act.triggered.connect(self._set_isolated)
+
         self.row_down_act = QAction("Row ▼", self)
         self.row_down_act.setToolTip("Previous row (Down)")
         self.row_down_act.triggered.connect(lambda: self._move_row(-1))
@@ -146,6 +152,7 @@ class MainWindow(QMainWindow):
         self.row_label.setObjectName("rowLabel")
 
         toolbar.addAction(self.viewer_act)
+        toolbar.addAction(self.isolate_act)
         toolbar.addSeparator()
         toolbar.addAction(self.row_down_act)
         toolbar.addAction(self.row_up_act)
@@ -155,6 +162,11 @@ class MainWindow(QMainWindow):
         canvas = self._current_canvas()
         if canvas is not None:
             canvas.set_viewer_mode(enabled)
+
+    def _set_isolated(self, enabled: bool):
+        canvas = self._current_canvas()
+        if canvas is not None:
+            canvas.set_isolated(enabled)
 
     def _move_row(self, delta: int):
         canvas = self._current_canvas()
@@ -168,6 +180,8 @@ class MainWindow(QMainWindow):
         self.viewer_act.setChecked(viewing)
         self.row_up_act.setEnabled(viewing)
         self.row_down_act.setEnabled(viewing)
+        self.isolate_act.setEnabled(canvas is not None)
+        self.isolate_act.setChecked(canvas is not None and canvas.isolated)
         if canvas is not None and viewing:
             self.row_label.setText(
                 f"Row {canvas.current_row + 1} of {canvas.pattern.height}"

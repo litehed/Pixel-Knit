@@ -38,6 +38,7 @@ class GridCanvas(QWidget):
         self.path: str | None = None
         self.dirty = False
         self._viewer = False
+        self._isolated = False
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
 
     def set_pattern(self, pattern: Pattern) -> None:
@@ -59,7 +60,23 @@ class GridCanvas(QWidget):
         if enabled == self._viewer:
             return
         self._viewer = enabled
+        if not enabled:
+            self._isolated = False
         if enabled:
+            self.setFocus()
+        self.update()
+        self.viewerChanged.emit()
+
+    @property
+    def isolated(self) -> bool:
+        return self._isolated
+
+    def set_isolated(self, enabled: bool) -> None:
+        if enabled == self._isolated:
+            return
+        self._isolated = enabled
+        if enabled:
+            self._viewer = True
             self.setFocus()
         self.update()
         self.viewerChanged.emit()
@@ -101,6 +118,14 @@ class GridCanvas(QWidget):
 
     def _geometry(self) -> tuple[float, float, float]:
         p = self.pattern
+        if self._isolated:
+            cell = min(
+                (self.width() - 2 * MARGIN) / p.width, self.height() - 2 * MARGIN
+            )
+            x0 = (self.width() - cell * p.width) / 2
+            y0 = (self.height() - cell) / 2 - (p.height - 1 - p.current_row) * cell
+            return cell, x0, y0
+
         cell = self._base_cell() * self._zoom
         x0 = (self.width() - cell * p.width) / 2 + self._pan.x()
         y0 = (self.height() - cell * p.height) / 2 + self._pan.y()
@@ -190,8 +215,11 @@ class GridCanvas(QWidget):
         # Only loop over the cells that are actually on screen
         first_col = max(0, int((0 - x0) // cell))
         last_col = min(p.width - 1, int((self.width() - x0) // cell))
-        first_screen_row = max(0, int((0 - y0) // cell))
-        last_screen_row = min(p.height - 1, int((self.height() - y0) // cell))
+        if self._isolated:
+            first_screen_row = last_screen_row = p.height - 1 - p.current_row
+        else:
+            first_screen_row = max(0, int((0 - y0) // cell))
+            last_screen_row = min(p.height - 1, int((self.height() - y0) // cell))
 
         for screen_row in range(first_screen_row, last_screen_row + 1):
             row = p.height - 1 - screen_row  # row 0 is at the bottom
@@ -200,7 +228,7 @@ class GridCanvas(QWidget):
                 painter.setBrush(QColor(p.palette[p.cells[row][col]]))
                 painter.drawRect(QRectF(x0 + col * cell, y, cell, cell))
 
-        if self._viewer:
+        if self._viewer and not self._isolated:
             self._paint_row_focus(painter, cell, x0, y0)
 
     # Input Events
@@ -227,6 +255,7 @@ class GridCanvas(QWidget):
         return super().event(e)
 
     def mousePressEvent(self, event):
+        self.setFocus()
         button = event.button()
         if button == Qt.MouseButton.MiddleButton:
             self._panning = True
@@ -234,7 +263,7 @@ class GridCanvas(QWidget):
             self.setCursor(Qt.CursorShape.ClosedHandCursor)
             return
         if self._viewer:
-            if button == Qt.MouseButton.LeftButton:
+            if button == Qt.MouseButton.LeftButton and not self._isolated:
                 hit = self.cell_at(event.position())
                 if hit is not None:
                     self.set_row(hit[0])
