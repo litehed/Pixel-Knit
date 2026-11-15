@@ -19,7 +19,7 @@ class PatternFileError(Exception):
     pass
 
 
-def _write_atomic(path: str, data: dict) -> None:
+def write_atomic(path: str, data: dict) -> None:
     target = Path(path)
     # Write to a temp file first, then swap it in, so a crash or full disk
     # mid-save can't leave a half-written (corrupt) pattern behind.
@@ -28,8 +28,8 @@ def _write_atomic(path: str, data: dict) -> None:
     os.replace(temp, target)
 
 
-def save_pattern(pattern: Pattern, path: str) -> None:
-    data = {
+def pattern_to_dict(pattern: Pattern) -> dict:
+    return {
         "format": FORMAT_NAME,
         "version": FORMAT_VERSION,
         "width": pattern.width,
@@ -38,7 +38,10 @@ def save_pattern(pattern: Pattern, path: str) -> None:
         "cells": pattern.cells,
         "current_row": pattern.current_row,
     }
-    _write_atomic(path, data)
+
+
+def save_pattern(pattern: Pattern, path: str) -> None:
+    write_atomic(path, pattern_to_dict(pattern))
 
 
 def save_current_row(path: str, row: int) -> None:
@@ -46,7 +49,7 @@ def save_current_row(path: str, row: int) -> None:
     if not isinstance(data, dict) or data.get("format") != FORMAT_NAME:
         raise ValueError("not a pattern file")
     data["current_row"] = row
-    _write_atomic(path, data)
+    write_atomic(path, data)
 
 
 def load_pattern(path: str) -> Pattern:

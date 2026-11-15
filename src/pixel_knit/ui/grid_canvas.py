@@ -1,3 +1,5 @@
+import uuid
+
 from PySide6.QtCore import QEvent, QPointF, QRectF, Qt, Signal
 from PySide6.QtGui import QColor, QPainter, QPen, QUndoStack
 from PySide6.QtWidgets import QWidget
@@ -42,6 +44,7 @@ class GridCanvas(QWidget):
         self._viewer = False
         self._isolated = False
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self.session_id = uuid.uuid4().hex
 
     def set_pattern(self, pattern: Pattern) -> None:
         self.pattern = pattern

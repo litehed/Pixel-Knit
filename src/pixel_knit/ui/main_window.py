@@ -19,6 +19,7 @@ from PySide6.QtWidgets import (
     QTabWidget,
 )
 
+from pixel_knit.core import recovery
 from pixel_knit.core.pattern import Pattern
 from pixel_knit.core.recent_files import add_recent, load_recent, remove_recent
 from pixel_knit.core.storage import (
@@ -29,6 +30,7 @@ from pixel_knit.core.storage import (
     save_current_row,
     save_pattern,
 )
+from pixel_knit.ui.autosave import AutosaveManager
 from pixel_knit.ui.grid_canvas import ZOOM_STEP, GridCanvas
 from pixel_knit.ui.new_project_dialog import NewProjectDialog
 from pixel_knit.ui.palette_panel import PalettePanel
@@ -84,11 +86,14 @@ class MainWindow(QMainWindow):
         self._row_save_timer.setInterval(500)
         self._row_save_timer.timeout.connect(self._flush_row_saves)
 
+        self.autosave = AutosaveManager(self)
+
         self._build_menus()
         self._build_toolbar()
         self.tabs.currentChanged.connect(self._on_tab_changed)
         self._thumb_cache: dict[str, tuple[float, QPixmap]] = {}
         self._on_tab_changed(0)
+        QTimer.singleShot(0, self._offer_recovery)
 
     # Menu and toolbar setup
     def _build_menus(self):
@@ -281,7 +286,7 @@ class MainWindow(QMainWindow):
                 return i
         return None
 
-    def _open_tab(self, pattern: Pattern, path: str | None):
+    def _open_tab(self, pattern: Pattern, path: str | None) -> GridCanvas:
         canvas = GridCanvas(pattern)
         canvas.path = path
         canvas.paletteChanged.connect(self._refresh_palette)
@@ -292,15 +297,19 @@ class MainWindow(QMainWindow):
         canvas.viewerChanged.connect(self._sync_viewer_ui)
         canvas.rowChanged.connect(self._sync_viewer_ui)
         canvas.rowChanged.connect(lambda c=canvas: self._queue_row_save(c))
+        self.autosave.watch(canvas)
         index = self.tabs.addTab(canvas, self._display_name(canvas))
         self.tabs.setCurrentIndex(index)
         self.palette_panel.reset_active_color()
+        return canvas
 
     def _close_tab(self, index: int):
         self._flush_row_saves()
         canvas = self.tabs.widget(index)
         if isinstance(canvas, GridCanvas) and self._confirm_discard(canvas):
+            self.autosave.discard(canvas)
             self.tabs.removeTab(index)
+            canvas.undo_stack.blockSignals(True)
             canvas.deleteLater()
 
     def _zoom(self, factor: float):
@@ -411,6 +420,37 @@ class MainWindow(QMainWindow):
                     pass
 
     # Handling unsaved changes
+    def _offer_recovery(self):
+        entries = recovery.find_recoverable()
+        if not entries:
+            return
+        names = "\n".join(
+            "• " + (Path(e.original_path).stem if e.original_path else "Untitled")
+            for e in entries
+        )
+        box = QMessageBox(self)
+        box.setIcon(QMessageBox.Icon.Question)
+        box.setWindowTitle(WINDOW_NAME)
+        box.setText("Pixel Knit closed unexpectedly. Restore your unsaved work?")
+        box.setInformativeText(names)
+        restore_btn = box.addButton("Restore", QMessageBox.ButtonRole.AcceptRole)
+        discard_btn = box.addButton("Discard", QMessageBox.ButtonRole.DestructiveRole)
+        box.setDefaultButton(restore_btn)
+        box.exec()
+
+        clicked = box.clickedButton()
+        if clicked is discard_btn:
+            for entry in entries:
+                recovery.delete(entry.session_id)
+        elif clicked is restore_btn:
+            for entry in entries:
+                path = entry.original_path
+                if path is not None and not Path(path).exists():
+                    path = None  # the file was moved or deleted
+                canvas = self._open_tab(entry.pattern, path)
+                canvas.session_id = entry.session_id  # keep its recovery file alive
+                canvas.undo_stack.resetClean()  # mark as unsaved
+
     def _confirm_discard(self, canvas: GridCanvas) -> bool:
         if not canvas.dirty:
             return True
@@ -437,5 +477,10 @@ class MainWindow(QMainWindow):
             if isinstance(canvas, GridCanvas) and not self._confirm_discard(canvas):
                 event.ignore()
                 return
+        for i in range(self.tabs.count()):
+            canvas = self.tabs.widget(i)
+            if isinstance(canvas, GridCanvas):
+                self.autosave.discard(canvas)
+                canvas.undo_stack.blockSignals(True)
         self._flush_row_saves()
         event.accept()
