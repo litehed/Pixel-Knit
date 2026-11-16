@@ -172,11 +172,13 @@ class MainWindow(QMainWindow):
         self.isolate_act.setToolTip("Show only the current row (I)")
         self.isolate_act.triggered.connect(self._set_isolated)
 
-        self.row_down_act = QAction("Row ▼", self)
+        self.row_down_act = QAction("Previous Row", self)
+        self.row_down_act.setShortcut(QKeySequence("Down"))
         self.row_down_act.setToolTip("Previous row (Down)")
         self.row_down_act.triggered.connect(lambda: self._move_row(-1))
 
-        self.row_up_act = QAction("Row ▲", self)
+        self.row_up_act = QAction("Next Row", self)
+        self.row_up_act.setShortcut(QKeySequence("Up"))
         self.row_up_act.setToolTip("Next row (Up)")
         self.row_up_act.triggered.connect(lambda: self._move_row(+1))
 

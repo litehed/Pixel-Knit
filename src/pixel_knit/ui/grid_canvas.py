@@ -39,6 +39,7 @@ class GridCanvas(QWidget):
         self._stroke_button: Qt.MouseButton | None = None
         self._image: QImage | None = None  # chart cache
         self._zoom = 1.0
+        self._saved_view = (1.0, QPointF(0, 0))
         self._pan = QPointF(0, 0)
         self._panning = False
         self._last_pan_pos = QPointF()
@@ -98,7 +99,7 @@ class GridCanvas(QWidget):
             return
         self._viewer = enabled
         if not enabled:
-            self._isolated = False
+            self._leave_isolated()
         if enabled:
             self.setFocus()
         self.update()
@@ -111,12 +112,21 @@ class GridCanvas(QWidget):
     def set_isolated(self, enabled: bool) -> None:
         if enabled == self._isolated:
             return
-        self._isolated = enabled
         if enabled:
+            self._saved_view = (self._zoom, QPointF(self._pan))
+            self._zoom, self._pan = 1.0, QPointF(0, 0)  # the row has its own view
+            self._isolated = True
             self._viewer = True
             self.setFocus()
+        else:
+            self._leave_isolated()
         self.update()
         self.viewerChanged.emit()
+
+    def _leave_isolated(self) -> None:
+        if self._isolated:
+            self._isolated = False
+            self._zoom, self._pan = self._saved_view
 
     def set_row(self, row: int) -> None:
         row = row % self.pattern.height
@@ -154,50 +164,57 @@ class GridCanvas(QWidget):
     # geometry and view transforms
     def _base_cell(self) -> float:
         p = self.pattern
-        return min(
-            (self.width() - 2 * MARGIN) / p.width,
-            (self.height() - 2 * MARGIN) / p.height,
-        )
+        usable_w = self.width() - 2 * MARGIN
+        usable_h = self.height() - 2 * MARGIN
+        if self._isolated:
+            return min(usable_w / p.width, usable_h)
+        return min(usable_w / p.width, usable_h / p.height)
+
+    def _centered_origin(self, cell: float) -> tuple[float, float]:
+        p = self.pattern
+        x0 = (self.width() - cell * p.width) / 2
+        if self._isolated:  # center the current row, not the whole grid
+            y0 = (self.height() - cell) / 2 - (p.height - 1 - p.current_row) * cell
+        else:
+            y0 = (self.height() - cell * p.height) / 2
+        return x0, y0
 
     def _geometry(self) -> tuple[float, float, float]:
-        p = self.pattern
-        if self._isolated:
-            cell = min(
-                (self.width() - 2 * MARGIN) / p.width, self.height() - 2 * MARGIN
-            )
-            x0 = (self.width() - cell * p.width) / 2
-            y0 = (self.height() - cell) / 2 - (p.height - 1 - p.current_row) * cell
-            return cell, x0, y0
-
         cell = self._base_cell() * self._zoom
-        x0 = (self.width() - cell * p.width) / 2 + self._pan.x()
-        y0 = (self.height() - cell * p.height) / 2 + self._pan.y()
-        return cell, x0, y0
+        ox, oy = self._centered_origin(cell)
+        return cell, ox + self._pan.x(), oy + self._pan.y()
 
     def _clamp_pan(self) -> None:
-        limit_x, limit_y = self.width() / 2, self.height() / 2
-        self._pan = QPointF(
-            max(-limit_x, min(limit_x, self._pan.x())),
-            max(-limit_y, min(limit_y, self._pan.y())),
-        )
+        # The grids far edges can travel to the middle of the view
+        p = self.pattern
+        cell = self._base_cell() * self._zoom
+        ox, oy = self._centered_origin(cell)
+        grid_w = cell * p.width
+        grid_h = cell if self._isolated else cell * p.height
+        half_w, half_h = self.width() / 2, self.height() / 2
+
+        pan_x = max(half_w - grid_w - ox, min(half_w - ox, self._pan.x()))
+        if self._isolated:
+            pan_y = 0.0  # the row stays vertically centered
+        else:
+            pan_y = max(half_h - grid_h - oy, min(half_h - oy, self._pan.y()))
+        self._pan = QPointF(pan_x, pan_y)
 
     def _zoom_at(self, pos: QPointF, factor: float) -> None:
         new_zoom = max(MIN_ZOOM, min(MAX_ZOOM, self._zoom * factor))
         if new_zoom == self._zoom:
             return
 
-        p = self.pattern
         cell, x0, y0 = self._geometry()
         gx = (pos.x() - x0) / cell  # grid-space point under the cursor, in cells
         gy = (pos.y() - y0) / cell
 
         self._zoom = new_zoom
         new_cell = self._base_cell() * new_zoom
-        new_x0 = pos.x() - gx * new_cell
-        new_y0 = pos.y() - gy * new_cell
+        ox, oy = self._centered_origin(new_cell)
         self._pan = QPointF(
-            new_x0 - (self.width() - new_cell * p.width) / 2,
-            new_y0 - (self.height() - new_cell * p.height) / 2,
+            pos.x() - gx * new_cell - ox,
+            pos.y() - gy * new_cell - oy,
         )
         self._clamp_pan()
         self.update()
@@ -312,6 +329,9 @@ class GridCanvas(QWidget):
             delta = event.pixelDelta()
             if delta.isNull():  # regular mouse wheel: no pixel data
                 delta = event.angleDelta() / 2
+
+            if self._isolated:  # a row only scrolls sideways
+                delta = QPointF(delta.x() or delta.y(), 0)
             self._pan += QPointF(delta)
             self._clamp_pan()
             self.update()
@@ -386,11 +406,3 @@ class GridCanvas(QWidget):
             return
         if event.button() == self._stroke_button:
             self._finish_stroke()
-
-    def keyPressEvent(self, event):
-        if self._viewer and event.key() == Qt.Key.Key_Up:
-            self.move_row(1)
-        elif self._viewer and event.key() == Qt.Key.Key_Down:
-            self.move_row(-1)
-        else:
-            super().keyPressEvent(event)
