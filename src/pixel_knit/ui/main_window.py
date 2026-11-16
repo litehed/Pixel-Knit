@@ -35,6 +35,7 @@ from pixel_knit.ui.autosave import AutosaveManager
 from pixel_knit.ui.grid_canvas import ZOOM_STEP, GridCanvas
 from pixel_knit.ui.new_project_dialog import NewProjectDialog
 from pixel_knit.ui.palette_panel import PalettePanel
+from pixel_knit.ui.settings_dialog import SettingsDialog
 from pixel_knit.ui.start_screen import StartScreen
 from pixel_knit.ui.thumbnail import render_thumbnail
 
@@ -128,6 +129,13 @@ class MainWindow(QMainWindow):
         redo_act = self.undo_group.createRedoAction(self)
         redo_act.setShortcut(QKeySequence(QKeySequence.StandardKey.Redo))
         edit_menu.addActions([undo_act, redo_act])
+
+        self.settings_act = QAction("Settings...", self)
+        self.settings_act.setShortcut(QKeySequence("Ctrl+,"))
+        self.settings_act.setMenuRole(QAction.MenuRole.PreferencesRole)
+        self.settings_act.triggered.connect(self.open_settings)
+        edit_menu.addSeparator()
+        edit_menu.addAction(self.settings_act)
 
         view_menu = self.menuBar().addMenu("&View")
 
@@ -338,6 +346,9 @@ class MainWindow(QMainWindow):
         if dialog.exec():
             width, height = dialog.grid_size
             self._open_tab(Pattern(width=width, height=height), None)
+
+    def open_settings(self):
+        SettingsDialog(self).exec()
 
     def open_dialog(self):
         path, _ = QFileDialog.getOpenFileName(self, "Open pattern", "", FILE_FILTER)

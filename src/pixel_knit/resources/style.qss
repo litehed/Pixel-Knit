@@ -198,6 +198,7 @@ QPushButton#primaryButton:pressed {
     background: transparent;
 }
 
+
 QScrollBar:vertical {
     background: transparent;
     width: 10px;
