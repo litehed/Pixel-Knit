@@ -197,6 +197,9 @@ class PalettePanel(QWidget):
         self._set_active(DEFAULT_COLOR, sync_picker=True)
         self.colorSelected.emit(DEFAULT_COLOR)
 
+    def set_active_color(self, color: str) -> None:
+        self._set_active(color, sync_picker=True)
+
     def _build_ui(self) -> None:
         palette_heading = QLabel("PALETTE")
         palette_heading.setObjectName("sectionHeading")

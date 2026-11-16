@@ -95,6 +95,8 @@ class MainWindow(QMainWindow):
         self._thumb_cache: dict[str, tuple[float, QPixmap]] = {}
         self._on_tab_changed(0)
         QTimer.singleShot(0, self._offer_recovery)
+        self._palette_wanted = True
+        self.palette_dock.visibilityChanged.connect(self._on_palette_visibility)
 
     # Menu and toolbar setup
     def _build_menus(self):
@@ -247,7 +249,7 @@ class MainWindow(QMainWindow):
             canvas.undo_stack if canvas is not None else self._home_stack
         )
         on_project = canvas is not None
-        self.palette_dock.setVisible(on_project)
+        self.palette_dock.setVisible(on_project and self._palette_wanted)
         for act in self._editor_actions:
             act.setEnabled(on_project)
         self._sync_viewer_ui()
@@ -257,10 +259,14 @@ class MainWindow(QMainWindow):
             self.setWindowTitle(WINDOW_NAME)
             self.setWindowModified(False)
             return
-        canvas.set_active_color(self.palette_panel.active_color)
+        self.palette_panel.set_active_color(canvas.active_color)
         canvas.setFocus()
         self._refresh_palette()
         self._refresh_tab(canvas)
+
+    def _on_palette_visibility(self, visible: bool):
+        if self._current_canvas() is not None and self.isVisible():
+            self._palette_wanted = visible
 
     def _on_color_selected(self, color: str):
         canvas = self._current_canvas()
@@ -302,9 +308,9 @@ class MainWindow(QMainWindow):
         canvas.rowChanged.connect(self._sync_viewer_ui)
         canvas.rowChanged.connect(lambda c=canvas: self._queue_row_save(c))
         self.autosave.watch(canvas)
+        canvas.set_active_color(self.palette_panel.active_color)
         index = self.tabs.addTab(canvas, self._display_name(canvas))
         self.tabs.setCurrentIndex(index)
-        self.palette_panel.reset_active_color()
         return canvas
 
     def _close_tab(self, index: int):
