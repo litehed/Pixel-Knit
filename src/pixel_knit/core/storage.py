@@ -110,5 +110,12 @@ def _parse(data) -> Pattern:
     )
 
 
+def same_file(a: str, b: str) -> bool:
+    try:
+        return os.path.samefile(a, b)
+    except OSError:
+        return Path(a).resolve() == Path(b).resolve()
+
+
 def _is_dimension(value) -> bool:
     return isinstance(value, int) and 1 <= value <= MAX_DIMENSION

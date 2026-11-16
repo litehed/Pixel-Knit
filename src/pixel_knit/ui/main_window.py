@@ -27,6 +27,7 @@ from pixel_knit.core.storage import (
     FILE_FILTER,
     PatternFileError,
     load_pattern,
+    same_file,
     save_current_row,
     save_pattern,
 )
@@ -275,13 +276,14 @@ class MainWindow(QMainWindow):
             self.palette_panel.set_palette(canvas.pattern.palette[1:])
             self.palette_panel.set_background(canvas.pattern.palette[0])
 
-    def _find_tab(self, path: str) -> int | None:
+    def _find_tab(self, path: str, ignore: GridCanvas | None = None) -> int | None:
         for i in range(self.tabs.count()):
             canvas = self.tabs.widget(i)
             if (
                 isinstance(canvas, GridCanvas)
+                and canvas is not ignore
                 and canvas.path
-                and Path(canvas.path) == Path(path)
+                and same_file(canvas.path, path)
             ):
                 return i
         return None
@@ -389,6 +391,14 @@ class MainWindow(QMainWindow):
             return False
         if not path.lower().endswith(EXTENSION):
             path += EXTENSION
+        if self._find_tab(path, ignore=canvas) is not None:
+            QMessageBox.warning(
+                self,
+                WINDOW_NAME,
+                f"{Path(path).name} is already open in another tab.\n\n"
+                "Close that tab first, or save under a different name.",
+            )
+            return False
         return self._write(canvas, path)
 
     def _write(self, canvas: GridCanvas, path: str) -> bool:

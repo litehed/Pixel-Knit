@@ -6,6 +6,7 @@ from PySide6.QtGui import QColor, QImage, QPainter, QPen, QUndoStack
 from PySide6.QtWidgets import QWidget
 
 from pixel_knit.core.commands import SetBackgroundCommand, StrokeCommand
+from pixel_knit.core.geometry import line_cells
 from pixel_knit.core.pattern import DEFAULT_COLOR, Pattern
 from pixel_knit.ui.theme import ACCENT, BORDER, CANVAS_BACKGROUND
 
@@ -22,25 +23,6 @@ PAINT = "paint"
 ERASE = "erase"
 
 
-def _line_cells(start: tuple[int, int], end: tuple[int, int]):
-    (r0, c0), (r1, c1) = start, end
-    dr, dc = abs(r1 - r0), abs(c1 - c0)
-    sr = 1 if r0 < r1 else -1
-    sc = 1 if c0 < c1 else -1
-    err = dc - dr
-    while True:
-        yield r0, c0
-        if (r0, c0) == (r1, c1):
-            return
-        e2 = 2 * err
-        if e2 > -dr:
-            err -= dr
-            c0 += sc
-        if e2 < dc:
-            err += dc
-            r0 += sr
-
-
 class GridCanvas(QWidget):
     paletteChanged = Signal()
     viewerChanged = Signal()
@@ -54,6 +36,7 @@ class GridCanvas(QWidget):
         self.active_color = DEFAULT_COLOR
         self._stroke: str | None = None  # PAINT or ERASE while a button is held
         self._last_cell: tuple[int, int] | None = None
+        self._stroke_button: Qt.MouseButton | None = None
         self._image: QImage | None = None  # chart cache
         self._zoom = 1.0
         self._pan = QPointF(0, 0)
@@ -228,7 +211,7 @@ class GridCanvas(QWidget):
         self._last_cell = target
 
         changed = False
-        for row, col in _line_cells(start, target):
+        for row, col in line_cells(start, target):
             changed |= self._paint_cell(row, col)
         if changed:
             self.update()  # once per mouse event, not call
@@ -357,12 +340,15 @@ class GridCanvas(QWidget):
                 if hit is not None:
                     self.set_row(hit[0])
             return
+        if self._stroke is not None:
+            return
         if button == Qt.MouseButton.LeftButton:
             self._stroke = PAINT
         elif button == Qt.MouseButton.RightButton:
             self._stroke = ERASE
         else:
             return
+        self._stroke_button = button
         self._last_cell = None
         self._apply_stroke(event.position())
 
@@ -378,6 +364,7 @@ class GridCanvas(QWidget):
 
     def _finish_stroke(self) -> None:
         self._last_cell = None
+        self._stroke_button = None
         changes, self._stroke_changes = self._stroke_changes, {}
         stroke, self._stroke = self._stroke, None
         if not changes:
@@ -397,7 +384,8 @@ class GridCanvas(QWidget):
             self._panning = False
             self.unsetCursor()
             return
-        self._finish_stroke()
+        if event.button() == self._stroke_button:
+            self._finish_stroke()
 
     def keyPressEvent(self, event):
         if self._viewer and event.key() == Qt.Key.Key_Up:
