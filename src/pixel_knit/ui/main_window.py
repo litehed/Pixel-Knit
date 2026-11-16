@@ -20,6 +20,7 @@ from PySide6.QtWidgets import (
 )
 
 from pixel_knit.core import recovery
+from pixel_knit.core.app_settings import AppSettings
 from pixel_knit.core.pattern import Pattern
 from pixel_knit.core.recent_files import add_recent, load_recent, remove_recent
 from pixel_knit.core.storage import (
@@ -45,6 +46,7 @@ WINDOW_NAME = "Pixel Knit"
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
+        self.settings = AppSettings()
         self.resize(900, 700)
 
         self.start_screen = StartScreen()
@@ -92,12 +94,13 @@ class MainWindow(QMainWindow):
 
         self._build_menus()
         self._build_toolbar()
+        self._restore_window_layout()
         self.tabs.currentChanged.connect(self._on_tab_changed)
         self._thumb_cache: dict[str, tuple[float, QPixmap]] = {}
+        self._palette_wanted = self.settings.palette_visible
         self._on_tab_changed(0)
-        QTimer.singleShot(0, self._offer_recovery)
-        self._palette_wanted = True
         self.palette_dock.visibilityChanged.connect(self._on_palette_visibility)
+        QTimer.singleShot(0, self._offer_recovery)
 
     # Menu and toolbar setup
     def _build_menus(self):
@@ -351,7 +354,9 @@ class MainWindow(QMainWindow):
         SettingsDialog(self).exec()
 
     def open_dialog(self):
-        path, _ = QFileDialog.getOpenFileName(self, "Open pattern", "", FILE_FILTER)
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Open pattern", self.settings.last_folder, FILE_FILTER
+        )
         if path:
             self.open_project(path)
 
@@ -366,6 +371,7 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, WINDOW_NAME, f"Couldn't open that file.\n\n{err}")
             return
         add_recent(path)
+        self.settings.last_folder = str(Path(path).parent)
         self._open_tab(pattern, path)
 
     def _remove_recent(self, path: str):
@@ -402,7 +408,9 @@ class MainWindow(QMainWindow):
         return self._write(canvas, canvas.path)
 
     def _save_as(self, canvas: GridCanvas) -> bool:
-        suggested = canvas.path or f"Untitled{EXTENSION}"
+        suggested = canvas.path or str(
+            Path(self.settings.last_folder) / f"Untitled{EXTENSION}"
+        )
         path, _ = QFileDialog.getSaveFileName(
             self, "Save pattern", suggested, FILE_FILTER
         )
@@ -430,6 +438,7 @@ class MainWindow(QMainWindow):
         canvas.path = path
         canvas.undo_stack.setClean()
         add_recent(path)
+        self.settings.last_folder = str(Path(path).parent)
         self._refresh_tab(canvas)
         return True
 
@@ -512,4 +521,18 @@ class MainWindow(QMainWindow):
                 self.autosave.discard(canvas)
                 canvas.undo_stack.blockSignals(True)
         self._flush_row_saves()
+        self._save_window_layout()
         event.accept()
+
+    def _restore_window_layout(self):
+        geometry = self.settings.window_geometry
+        if not geometry.isEmpty():
+            self.restoreGeometry(geometry)
+        state = self.settings.window_state
+        if not state.isEmpty():
+            self.restoreState(state)
+
+    def _save_window_layout(self):
+        self.settings.window_geometry = self.saveGeometry()
+        self.settings.window_state = self.saveState()
+        self.settings.palette_visible = self._palette_wanted
