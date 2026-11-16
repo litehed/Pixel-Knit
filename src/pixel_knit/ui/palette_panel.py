@@ -151,6 +151,7 @@ class PalettePanel(QWidget):
 
         self._active = DEFAULT_COLOR
         self._swatches: list[QPushButton] = []
+        self._colors: list[str] = []
 
         self._build_ui()
         self._set_active(self._active, sync_picker=True)
@@ -165,6 +166,9 @@ class PalettePanel(QWidget):
         )
 
     def set_palette(self, colors: list[str]) -> None:
+        if colors == self._colors:
+            return
+        self._colors = list(colors)
         while self._grid.count():
             item = self._grid.takeAt(0)
             widget = item.widget() if item is not None else None

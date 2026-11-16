@@ -1,7 +1,8 @@
+from array import array
 import uuid
 
-from PySide6.QtCore import QEvent, QPointF, QRectF, Qt, Signal
-from PySide6.QtGui import QColor, QPainter, QPen, QUndoStack
+from PySide6.QtCore import QEvent, QLineF, QPointF, QRectF, Qt, Signal
+from PySide6.QtGui import QColor, QImage, QPainter, QPen, QUndoStack
 from PySide6.QtWidgets import QWidget
 
 from pixel_knit.core.commands import SetBackgroundCommand, StrokeCommand
@@ -21,6 +22,25 @@ PAINT = "paint"
 ERASE = "erase"
 
 
+def _line_cells(start: tuple[int, int], end: tuple[int, int]):
+    (r0, c0), (r1, c1) = start, end
+    dr, dc = abs(r1 - r0), abs(c1 - c0)
+    sr = 1 if r0 < r1 else -1
+    sc = 1 if c0 < c1 else -1
+    err = dc - dr
+    while True:
+        yield r0, c0
+        if (r0, c0) == (r1, c1):
+            return
+        e2 = 2 * err
+        if e2 > -dr:
+            err -= dr
+            c0 += sc
+        if e2 < dc:
+            err += dc
+            r0 += sr
+
+
 class GridCanvas(QWidget):
     paletteChanged = Signal()
     viewerChanged = Signal()
@@ -33,6 +53,8 @@ class GridCanvas(QWidget):
         self.pattern = pattern or Pattern()
         self.active_color = DEFAULT_COLOR
         self._stroke: str | None = None  # PAINT or ERASE while a button is held
+        self._last_cell: tuple[int, int] | None = None
+        self._image: QImage | None = None  # chart cache
         self._zoom = 1.0
         self._pan = QPointF(0, 0)
         self._panning = False
@@ -48,6 +70,7 @@ class GridCanvas(QWidget):
 
     def set_pattern(self, pattern: Pattern) -> None:
         self.pattern = pattern
+        self._image = None
         self.undo_stack.clear()
         self.reset_view()
 
@@ -58,7 +81,24 @@ class GridCanvas(QWidget):
     def dirty(self) -> bool:
         return not self.undo_stack.isClean()
 
+    def _chart_image(self) -> QImage:
+        if self._image is None:
+            p = self.pattern
+            argb = [QColor(c).rgb() for c in p.palette]
+            pixels = array("I")
+            for row in reversed(p.cells):  # row 0 is the bottom of the chart
+                pixels.extend([argb[i] for i in row])
+            self._image = QImage(
+                pixels.tobytes(),
+                p.width,
+                p.height,
+                p.width * 4,
+                QImage.Format.Format_RGB32,
+            ).copy()  # copy so Qt owns the pixels
+        return self._image
+
     def _on_stack_changed(self, _index: int = 0) -> None:
+        self._image = None
         self.update()
         self.paletteChanged.emit()
 
@@ -113,11 +153,17 @@ class GridCanvas(QWidget):
     def zoom_by(self, factor: float) -> None:
         self._zoom_at(QPointF(self.width() / 2, self.height() / 2), factor)
 
-    def cell_at(self, pos: QPointF) -> tuple[int, int] | None:
-        p = self.pattern
+    def _raw_cell_at(self, pos: QPointF) -> tuple[int, int]:
         cell, x0, y0 = self._geometry()
         col = int((pos.x() - x0) // cell)
-        row = p.height - 1 - int((pos.y() - y0) // cell)  # undo the bottom-up flip
+        row = (
+            self.pattern.height - 1 - int((pos.y() - y0) // cell)
+        )  # undo the bottom-up flip
+        return row, col
+
+    def cell_at(self, pos: QPointF) -> tuple[int, int] | None:
+        p = self.pattern
+        row, col = self._raw_cell_at(pos)
         if 0 <= col < p.width and 0 <= row < p.height:
             return row, col
         return None
@@ -175,24 +221,40 @@ class GridCanvas(QWidget):
 
     # Drawing cells
     def _apply_stroke(self, pos: QPointF) -> None:
-        hit = self.cell_at(pos)
-        if hit is None or self._stroke is None:
+        if self._stroke is None:
             return
+        target = self._raw_cell_at(pos)
+        start = self._last_cell if self._last_cell is not None else target
+        self._last_cell = target
+
+        changed = False
+        for row, col in _line_cells(start, target):
+            changed |= self._paint_cell(row, col)
+        if changed:
+            self.update()  # once per mouse event, not call
+
+    def _paint_cell(self, row: int, col: int) -> bool:
+        p = self.pattern
+        if not (0 <= row < p.height and 0 <= col < p.width):
+            return False
 
         if self._stroke == ERASE:
             value = 0
         else:
-            # Only add the color to the palette once a cell is actually painted
-            size = len(self.pattern.palette)
-            value = self.pattern.index_for(self.active_color)
-            if len(self.pattern.palette) != size:
+            size = len(p.palette)
+            value = p.index_for(self.active_color)
+            if len(p.palette) != size:
                 self.paletteChanged.emit()
 
-        row, col = hit
-        old = self.pattern.cells[row][col]
-        if self.pattern.set_cell(row, col, value):
+        old = p.cells[row][col]
+        if p.set_cell(row, col, value):
             self._stroke_changes[(row, col)] = (old, value)
-            self.update()
+            if self._image is not None:
+                self._image.setPixelColor(
+                    col, p.height - 1 - row, QColor(p.palette[value])
+                )
+            return True
+        return False
 
     # Drawing grid
     def set_background(self, color: str) -> None:
@@ -221,26 +283,39 @@ class GridCanvas(QWidget):
         painter = QPainter(self)
         painter.fillRect(self.rect(), QColor(CANVAS_BACKGROUND))
 
-        if cell >= GRID_LINE_MIN_CELL:
-            painter.setPen(QPen(QColor(BORDER), 1))
-        else:
-            painter.setPen(Qt.PenStyle.NoPen)
-
-        # Only loop over the cells that are actually on screen
+        # Only the cells that are actually on screen
         first_col = max(0, int((0 - x0) // cell))
         last_col = min(p.width - 1, int((self.width() - x0) // cell))
         if self._isolated:
-            first_screen_row = last_screen_row = p.height - 1 - p.current_row
+            first_row = last_row = p.height - 1 - p.current_row
         else:
-            first_screen_row = max(0, int((0 - y0) // cell))
-            last_screen_row = min(p.height - 1, int((self.height() - y0) // cell))
+            first_row = max(0, int((0 - y0) // cell))
+            last_row = min(p.height - 1, int((self.height() - y0) // cell))
+        if first_col > last_col or first_row > last_row:
+            return
 
-        for screen_row in range(first_screen_row, last_screen_row + 1):
-            row = p.height - 1 - screen_row  # row 0 is at the bottom
-            y = y0 + screen_row * cell
-            for col in range(first_col, last_col + 1):
-                painter.setBrush(QColor(p.palette[p.cells[row][col]]))
-                painter.drawRect(QRectF(x0 + col * cell, y, cell, cell))
+        source = QRectF(
+            first_col, first_row, last_col - first_col + 1, last_row - first_row + 1
+        )
+        target = QRectF(
+            x0 + first_col * cell,
+            y0 + first_row * cell,
+            source.width() * cell,
+            source.height() * cell,
+        )
+        painter.drawImage(target, self._chart_image(), source)
+
+        if cell >= GRID_LINE_MIN_CELL:
+            painter.setPen(QPen(QColor(BORDER), 1))
+            lines = [
+                QLineF(x0 + c * cell, target.top(), x0 + c * cell, target.bottom())
+                for c in range(first_col, last_col + 2)
+            ]
+            lines += [
+                QLineF(target.left(), y0 + r * cell, target.right(), y0 + r * cell)
+                for r in range(first_row, last_row + 2)
+            ]
+            painter.drawLines(lines)
 
         if self._viewer and not self._isolated:
             self._paint_row_focus(painter, cell, x0, y0)
@@ -288,6 +363,7 @@ class GridCanvas(QWidget):
             self._stroke = ERASE
         else:
             return
+        self._last_cell = None
         self._apply_stroke(event.position())
 
     def mouseMoveEvent(self, event):
@@ -301,6 +377,7 @@ class GridCanvas(QWidget):
         self._apply_stroke(event.position())
 
     def _finish_stroke(self) -> None:
+        self._last_cell = None
         changes, self._stroke_changes = self._stroke_changes, {}
         stroke, self._stroke = self._stroke, None
         if not changes:
