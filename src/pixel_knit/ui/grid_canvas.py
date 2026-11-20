@@ -8,7 +8,7 @@ from PySide6.QtWidgets import QWidget
 from pixel_knit.core.commands import SetBackgroundCommand, StrokeCommand
 from pixel_knit.core.geometry import line_cells
 from pixel_knit.core.pattern import DEFAULT_COLOR, Pattern
-from pixel_knit.ui.theme import ACCENT, BORDER, CANVAS_BACKGROUND
+from pixel_knit.ui.theme import ACCENT, BORDER, CANVAS_BACKGROUND, TEXT_MUTED
 
 DIM_ALPHA = 150
 
@@ -18,6 +18,12 @@ MAX_ZOOM = 40.0
 ZOOM_STEP = 1.25
 WHEEL_ZOOM_RATE = 1.0015
 GRID_LINE_MIN_CELL = 6
+
+LABEL_MARGIN = 48
+LABEL_GAP = 8
+LABEL_STEPS = (1, 5, 10, 50, 100)
+LABEL_MIN_SPACING = 14
+LABEL_MAX_FONT = 16
 
 PAINT = "paint"
 ERASE = "erase"
@@ -164,7 +170,7 @@ class GridCanvas(QWidget):
     # geometry and view transforms
     def _base_cell(self) -> float:
         p = self.pattern
-        usable_w = self.width() - 2 * MARGIN
+        usable_w = self.width() - 2 * LABEL_MARGIN
         usable_h = self.height() - 2 * MARGIN
         if self._isolated:
             return min(usable_w / p.width, usable_h)
@@ -277,6 +283,50 @@ class GridCanvas(QWidget):
         painter.setPen(QPen(QColor(ACCENT), 2))
         painter.drawRect(QRectF(x0, y, width, cell))
 
+    def _paint_row_numbers(
+        self,
+        painter: QPainter,
+        cell: float,
+        x0: float,
+        y0: float,
+        first: int,
+        last: int,
+    ):
+        p = self.pattern
+        step = next(
+            (s for s in LABEL_STEPS if s * cell >= LABEL_MIN_SPACING), LABEL_STEPS[-1]
+        )
+        pixel_size = int(max(9, min(LABEL_MAX_FONT, cell * 0.55)))
+        normal = painter.font()
+        normal.setPixelSize(pixel_size)
+        bold = painter.font()
+        bold.setPixelSize(pixel_size)
+        bold.setBold(True)
+
+        grid_left = x0
+        grid_right = x0 + cell * p.width
+        box_h = max(cell, pixel_size * 1.6)
+        box_w = LABEL_MARGIN - LABEL_GAP
+
+        for screen_row in range(first, last + 1):
+            row = p.height - 1 - screen_row  # row 0 is the bottom row
+            number = row + 1
+            is_current = self._viewer and row == p.current_row
+            if number % step and not is_current:
+                continue
+
+            top = y0 + screen_row * cell + cell / 2 - box_h / 2
+            if number % 2:  # odd: right side
+                box = QRectF(grid_right + LABEL_GAP, top, box_w, box_h)
+                align = Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
+            else:  # even: left side
+                box = QRectF(grid_left - LABEL_GAP - box_w, top, box_w, box_h)
+                align = Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
+
+            painter.setFont(bold if is_current else normal)
+            painter.setPen(QColor(ACCENT if is_current else TEXT_MUTED))
+            painter.drawText(box, align, str(number))
+
     def paintEvent(self, event):
         p = self.pattern
         cell, x0, y0 = self._geometry()
@@ -316,6 +366,8 @@ class GridCanvas(QWidget):
                 for r in range(first_row, last_row + 2)
             ]
             painter.drawLines(lines)
+
+        self._paint_row_numbers(painter, cell, x0, y0, first_row, last_row)
 
         if self._viewer and not self._isolated:
             self._paint_row_focus(painter, cell, x0, y0)
