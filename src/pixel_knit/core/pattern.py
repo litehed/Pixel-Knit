@@ -28,6 +28,20 @@ class Pattern:
         self.palette.append(color)
         return len(self.palette) - 1
 
+    def remove_unused_colors(self) -> bool:
+        used = {0}.union(*map(set, self.cells))
+        if len(used) == len(self.palette):
+            return False
+        new_index: dict[int, int] = {}
+        kept: list[str] = []
+        for old, color in enumerate(self.palette):
+            if old in used:
+                new_index[old] = len(kept)
+                kept.append(color)
+        self.palette = kept
+        self.cells = [[new_index[i] for i in row] for row in self.cells]
+        return True
+
     def set_background(self, color: str) -> bool:
         color = color.lower()
         if color == self.palette[0]:

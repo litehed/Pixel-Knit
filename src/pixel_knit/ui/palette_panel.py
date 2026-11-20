@@ -152,6 +152,7 @@ class PalettePanel(QWidget):
         self._active = DEFAULT_COLOR
         self._swatches: list[QPushButton] = []
         self._colors: list[str] = []
+        self._background: str | None = None
 
         self._build_ui()
         self._set_active(self._active, sync_picker=True)
@@ -161,6 +162,9 @@ class PalettePanel(QWidget):
         return self._active
 
     def set_background(self, color: str) -> None:
+        if color == self._background:
+            return
+        self._background = color
         self.background_preview.setStyleSheet(
             f"background: {color}; border: 1px solid {BORDER}; border-radius: 6px;"
         )

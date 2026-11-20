@@ -429,6 +429,7 @@ class MainWindow(QMainWindow):
         return self._write(canvas, path)
 
     def _write(self, canvas: GridCanvas, path: str) -> bool:
+        canvas.remove_unused_colors()
         try:
             save_pattern(canvas.pattern, path)
         except OSError as err:

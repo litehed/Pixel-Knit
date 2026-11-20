@@ -88,6 +88,8 @@ class GridCanvas(QWidget):
         return self._image
 
     def _on_stack_changed(self, _index: int = 0) -> None:
+        if self._stroke is None:
+            self.pattern.remove_unused_colors()
         self._image = None
         self.update()
         self.paletteChanged.emit()
@@ -261,6 +263,12 @@ class GridCanvas(QWidget):
                 )
             return True
         return False
+
+    def remove_unused_colors(self) -> None:
+        if self.pattern.remove_unused_colors():
+            self._image = None
+            self.update()
+            self.paletteChanged.emit()
 
     # Drawing grid
     def set_background(self, color: str) -> None:
