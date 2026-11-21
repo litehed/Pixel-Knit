@@ -243,7 +243,11 @@ class MainWindow(QMainWindow):
 
     @staticmethod
     def _display_name(canvas: GridCanvas) -> str:
-        return Path(canvas.path).stem if canvas.path else "Untitled"
+        if canvas.path:
+            return Path(canvas.path).stem
+        if canvas.untitled_number > 1:
+            return f"Untitled {canvas.untitled_number}"
+        return "Untitled"
 
     def _refresh_tab(self, canvas: GridCanvas):
         marker = "*" if canvas.dirty else ""
@@ -307,9 +311,22 @@ class MainWindow(QMainWindow):
                 return i
         return None
 
+    def _next_untitled_number(self) -> int:
+        taken = set()
+        for i in range(self.tabs.count()):
+            tab = self.tabs.widget(i)
+            if isinstance(tab, GridCanvas) and tab.path is None:
+                taken.add(tab.untitled_number)
+        number = 1
+        while number in taken:
+            number += 1
+        return number
+
     def _open_tab(self, pattern: Pattern, path: str | None) -> GridCanvas:
         canvas = GridCanvas(pattern)
         canvas.path = path
+        if path is None:
+            canvas.untitled_number = self._next_untitled_number()
         canvas.paletteChanged.connect(self._refresh_palette)
         canvas.undo_stack.cleanChanged.connect(
             lambda _clean, c=canvas: self._refresh_tab(c)
@@ -409,7 +426,7 @@ class MainWindow(QMainWindow):
 
     def _save_as(self, canvas: GridCanvas) -> bool:
         suggested = canvas.path or str(
-            Path(self.settings.last_folder) / f"Untitled{EXTENSION}"
+            Path(self.settings.last_folder) / f"{self._display_name(canvas)}{EXTENSION}"
         )
         path, _ = QFileDialog.getSaveFileName(
             self, "Save pattern", suggested, FILE_FILTER

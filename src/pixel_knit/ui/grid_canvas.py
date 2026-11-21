@@ -50,6 +50,7 @@ class GridCanvas(QWidget):
         self._panning = False
         self._last_pan_pos = QPointF()
         self.path: str | None = None
+        self.untitled_number = 0
         self.undo_stack = QUndoStack(self)
         self.undo_stack.indexChanged.connect(self._on_stack_changed)
         self._stroke_changes: dict[tuple[int, int], tuple[int, int]] = {}
