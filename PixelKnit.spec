@@ -42,3 +42,10 @@ coll = COLLECT(
     upx_exclude=[],
     name='PixelKnit',
 )
+
+if sys.platform == "darwin":
+    app = BUNDLE(
+        coll,
+        name="PixelKnit.app",
+        bundle_identifier="com.pixelknit.app",
+    )
