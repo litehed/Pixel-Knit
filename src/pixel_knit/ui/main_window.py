@@ -10,6 +10,7 @@ from PySide6.QtGui import (
     QUndoStack,
 )
 from PySide6.QtWidgets import (
+    QApplication,
     QDockWidget,
     QFileDialog,
     QLabel,
@@ -204,6 +205,13 @@ class MainWindow(QMainWindow):
         toolbar.addAction(self.row_down_act)
         toolbar.addAction(self.row_up_act)
         toolbar.addWidget(self.row_label)
+
+    def bring_to_front(self):
+        self.setWindowState(self.windowState() & ~Qt.WindowState.WindowMinimized)
+        self.show()
+        self.raise_()
+        self.activateWindow()
+        QApplication.alert(self)
 
     def _set_viewer_mode(self, enabled: bool):
         canvas = self._current_canvas()
