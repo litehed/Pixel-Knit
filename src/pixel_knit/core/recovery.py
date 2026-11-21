@@ -1,3 +1,4 @@
+from contextlib import suppress
 import json
 from dataclasses import dataclass
 from pathlib import Path
@@ -54,6 +55,9 @@ def delete(session_id: str) -> None:
 
 
 def find_recoverable() -> list[RecoveryEntry]:
+    for leftover in _recovery_dir().glob("*.tmp"):
+        with suppress(OSError):
+            leftover.unlink()
     entries = []
     for file in sorted(_recovery_dir().glob("*" + SUFFIX)):
         try:

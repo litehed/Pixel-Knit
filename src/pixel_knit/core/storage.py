@@ -1,3 +1,4 @@
+from contextlib import suppress
 import json
 import os
 import re
@@ -24,8 +25,13 @@ def write_atomic(path: str, data: dict) -> None:
     # Write to a temp file first, then swap it in, so a crash or full disk
     # mid-save can't leave a half-written (corrupt) pattern behind.
     temp = target.with_name(target.name + ".tmp")
-    temp.write_text(json.dumps(data), encoding="utf-8")
-    os.replace(temp, target)
+    try:
+        temp.write_text(json.dumps(data), encoding="utf-8")
+        os.replace(temp, target)
+    except BaseException:
+        with suppress(OSError):
+            temp.unlink()  # dont leave a half-finished temp file behind
+        raise
 
 
 def pattern_to_dict(pattern: Pattern) -> dict:

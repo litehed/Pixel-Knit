@@ -42,7 +42,7 @@ class SingleInstance(QObject):
             socket.waitForBytesWritten(CONNECT_TIMEOUT_MS)
             socket.disconnectFromServer()
 
-    # Windows lame boo, I have to hand focus back to the original copy
+    # I have to hand focus back to the original copy
     def _allow_foreground(self) -> None:
         if sys.platform != "win32":
             return
