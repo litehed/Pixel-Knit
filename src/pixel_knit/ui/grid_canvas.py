@@ -8,7 +8,7 @@ from PySide6.QtWidgets import QMenu, QMessageBox, QWidget
 from pixel_knit.core.commands import SetBackgroundCommand, StrokeCommand
 from pixel_knit.core.geometry import line_cells
 from pixel_knit.core.pattern import DEFAULT_COLOR, Pattern
-from pixel_knit.ui.theme import ACCENT, BORDER, CANVAS_BACKGROUND, TEXT_MUTED
+from pixel_knit.ui.theme import ACCENT, BORDER, CANVAS_BACKGROUND, GUIDE, TEXT_MUTED
 
 DIM_ALPHA = 150
 
@@ -24,6 +24,10 @@ LABEL_GAP = 8
 LABEL_STEPS = (1, 5, 10, 50, 100)
 LABEL_MIN_SPACING = 14
 LABEL_MAX_FONT = 16
+
+GUIDE_STEPS = (5, 10, 50, 100)
+GUIDE_MIN_SPACING = 24
+GUIDE_WIDTH = 2
 
 MARKER_RING = "#222222"
 MARKER_HALO = "#ffffff"
@@ -318,6 +322,36 @@ class GridCanvas(QWidget):
         painter.setPen(QPen(QColor(ACCENT), 2))
         painter.drawRect(QRectF(x0, y, width, cell))
 
+    def _paint_guide_lines(
+        self,
+        painter: QPainter,
+        cell: float,
+        x0: float,
+        y0: float,
+        target: QRectF,
+        first_col: int,
+        last_col: int,
+        first_row: int,
+        last_row: int,
+    ):
+        p = self.pattern
+        step = next(
+            (s for s in GUIDE_STEPS if s * cell >= GUIDE_MIN_SPACING), GUIDE_STEPS[-1]
+        )
+        lines = [
+            QLineF(x0 + c * cell, target.top(), x0 + c * cell, target.bottom())
+            for c in range(first_col, last_col + 2)
+            if 0 < c < p.width and (p.width - c) % step == 0
+        ]
+        lines += [
+            QLineF(target.left(), y0 + r * cell, target.right(), y0 + r * cell)
+            for r in range(first_row, last_row + 2)
+            if 0 < r < p.height and (p.height - r) % step == 0
+        ]
+        if lines:
+            painter.setPen(QPen(QColor(GUIDE), GUIDE_WIDTH))
+            painter.drawLines(lines)
+
     def _paint_row_numbers(
         self,
         painter: QPainter,
@@ -429,6 +463,9 @@ class GridCanvas(QWidget):
             ]
             painter.drawLines(lines)
 
+        self._paint_guide_lines(
+            painter, cell, x0, y0, target, first_col, last_col, first_row, last_row
+        )
         self._paint_row_numbers(painter, cell, x0, y0, first_row, last_row)
 
         if self._viewer and not self._isolated:
