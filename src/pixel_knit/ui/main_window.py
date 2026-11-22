@@ -63,7 +63,6 @@ class MainWindow(QMainWindow):
 
         self.tabs = QTabWidget()
         self.tabs.setObjectName("projectTabs")
-        self.tabs.setDocumentMode(True)
         self.tabs.setTabsClosable(True)
         self.tabs.addTab(self.start_screen, "Home")
         bar = self.tabs.tabBar()

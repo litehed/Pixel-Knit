@@ -10,6 +10,7 @@ TEXT_MUTED = "#8a817a"
 TEXT_DISABLED = "#b9b0a8"
 SURFACE = "#ffffff"
 SURFACE_HOVER = "#f6f1ec"
+HOVER = "#e8e1da"
 
 
 def light_palette() -> QPalette:

@@ -54,7 +54,6 @@ QMenu::separator {
 QToolBar {
     background: #faf8f5;
     border: none;
-    border-bottom: 1px solid #ddd5cc;
     padding: 4px;
     spacing: 4px;
 }
@@ -89,26 +88,34 @@ QToolBar QToolButton:disabled {
 
 QTabWidget::pane {
     border: none;
-}
-QTabBar {
+    border-top: 1px solid #cfc5ba;
     background: #faf8f5;
+    top: -1px;
 }
 QTabBar::tab {
-    padding: 8px 22px 8px 16px;
-    margin-right: -4px;
-    background: #f1ece6;
+    padding: 7px 6px 7px 16px;
+    background: #ebe4db;
     color: #8a817a;
-    border: 1px solid #ddd5cc;
-    border-bottom: none;
-    border-top-left-radius: 8px;
-    border-top-right-radius: 8px;
+    border: 1px solid #cfc5ba;
+    border-top-left-radius: 7px;
+    border-top-right-radius: 7px;
+}
+QTabBar::tab:middle,
+QTabBar::tab:last {
+    margin-left: -1px;
+}
+QTabBar::tab:first,
+QTabBar::tab:only-one {
+    padding-right: 16px;  /* Home never has a close button */
 }
 QTabBar::tab:hover:!selected {
-    background: #f6f1ec;
+    background: #f1ece5;
+    color: #2b2623;
 }
 QTabBar::tab:selected {
-    background: #ffffff;
+    background: #faf8f5;
     color: #2b2623;
+    border-bottom: 1px solid #faf8f5;
 }
 
 #startScreen {
