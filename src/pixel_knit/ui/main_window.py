@@ -30,8 +30,8 @@ from pixel_knit.core.storage import (
     PatternFileError,
     load_pattern,
     same_file,
-    save_current_row,
     save_pattern,
+    save_progress,
 )
 from pixel_knit.ui.autosave import AutosaveManager
 from pixel_knit.ui.grid_canvas import ZOOM_STEP, GridCanvas
@@ -343,6 +343,7 @@ class MainWindow(QMainWindow):
         canvas.viewerChanged.connect(self._sync_viewer_ui)
         canvas.rowChanged.connect(self._sync_viewer_ui)
         canvas.rowChanged.connect(lambda c=canvas: self._queue_row_save(c))
+        canvas.markersChanged.connect(lambda c=canvas: self._queue_row_save(c))
         self.autosave.watch(canvas)
         canvas.set_active_color(self.palette_panel.active_color)
         index = self.tabs.addTab(canvas, self._display_name(canvas))
@@ -479,7 +480,7 @@ class MainWindow(QMainWindow):
         for canvas in pending:
             if canvas.path:
                 try:
-                    save_current_row(canvas.path, canvas.current_row)
+                    save_progress(canvas.path, canvas.pattern)
                 except (OSError, ValueError):
                     pass
 

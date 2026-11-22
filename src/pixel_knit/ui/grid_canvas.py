@@ -3,7 +3,7 @@ import uuid
 
 from PySide6.QtCore import QEvent, QLineF, QPointF, QRectF, Qt, Signal
 from PySide6.QtGui import QColor, QImage, QPainter, QPen, QUndoStack
-from PySide6.QtWidgets import QWidget
+from PySide6.QtWidgets import QMenu, QMessageBox, QWidget
 
 from pixel_knit.core.commands import SetBackgroundCommand, StrokeCommand
 from pixel_knit.core.geometry import line_cells
@@ -25,6 +25,9 @@ LABEL_STEPS = (1, 5, 10, 50, 100)
 LABEL_MIN_SPACING = 14
 LABEL_MAX_FONT = 16
 
+MARKER_RING = "#222222"
+MARKER_HALO = "#ffffff"
+
 PAINT = "paint"
 ERASE = "erase"
 
@@ -33,6 +36,7 @@ class GridCanvas(QWidget):
     paletteChanged = Signal()
     viewerChanged = Signal()
     rowChanged = Signal()
+    markersChanged = Signal()
 
     def __init__(self, pattern: Pattern | None = None, parent=None):
         super().__init__(parent)
@@ -143,6 +147,28 @@ class GridCanvas(QWidget):
             self.pattern.current_row = row
             self.update()
             self.rowChanged.emit()
+
+    def toggle_marker(self, row: int, col: int) -> None:
+        markers = self.pattern.markers
+        markers.symmetric_difference_update({(row, col)})
+        self.update()
+        self.markersChanged.emit()
+
+    def clear_markers(self) -> None:
+        count = len(self.pattern.markers)
+        if not count:
+            return
+        answer = QMessageBox.question(
+            self,
+            "Clear Markers",
+            f"Remove all {count} stitch marker{'s' if count != 1 else ''}?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if answer == QMessageBox.StandardButton.Yes:
+            self.pattern.markers.clear()
+            self.update()
+            self.markersChanged.emit()
 
     def move_row(self, delta: int) -> None:
         self.set_row(self.pattern.current_row + delta)
@@ -336,6 +362,33 @@ class GridCanvas(QWidget):
             painter.setPen(QColor(ACCENT if is_current else TEXT_MUTED))
             painter.drawText(box, align, str(number))
 
+    def _paint_markers(self, painter: QPainter, cell: float, x0: float, y0: float):
+        p = self.pattern
+        radius = max(2.0, cell * 0.3)
+        width = max(1.5, cell * 0.1)
+        halo = QPen(QColor(MARKER_HALO), width + 2)
+        ring = QPen(QColor(MARKER_RING), width)
+
+        painter.save()
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        for row, col in p.markers:
+            if self._isolated and row != p.current_row:
+                continue
+            cx = x0 + (col + 0.5) * cell
+            cy = y0 + (p.height - 1 - row + 0.5) * cell
+            if not (
+                -cell <= cx <= self.width() + cell
+                and -cell <= cy <= self.height() + cell
+            ):
+                continue
+            center = QPointF(cx, cy)
+            painter.setPen(halo)
+            painter.drawEllipse(center, radius, radius)
+            painter.setPen(ring)
+            painter.drawEllipse(center, radius, radius)
+        painter.restore()
+
     def paintEvent(self, event):
         p = self.pattern
         cell, x0, y0 = self._geometry()
@@ -380,6 +433,8 @@ class GridCanvas(QWidget):
 
         if self._viewer and not self._isolated:
             self._paint_row_focus(painter, cell, x0, y0)
+        if self._viewer:
+            self._paint_markers(painter, cell, x0, y0)
 
     # Input Events
     def wheelEvent(self, event):
@@ -467,3 +522,25 @@ class GridCanvas(QWidget):
             return
         if event.button() == self._stroke_button:
             self._finish_stroke()
+
+    def contextMenuEvent(self, event):
+        if not self._viewer:
+            event.ignore()  # in edit mode, right-click erases
+            return
+        hit = self.cell_at(QPointF(event.pos()))
+        if hit is None or (self._isolated and hit[0] != self.pattern.current_row):
+            event.ignore()
+            return
+
+        row, col = hit
+        has_marker = (row, col) in self.pattern.markers
+        menu = QMenu(self)
+        toggle = menu.addAction(
+            "Remove Stitch Marker" if has_marker else "Add Stitch Marker"
+        )
+        toggle.triggered.connect(lambda: self.toggle_marker(row, col))
+        menu.addSeparator()
+        clear = menu.addAction("Clear All Markers")
+        clear.setEnabled(bool(self.pattern.markers))
+        clear.triggered.connect(self.clear_markers)
+        menu.exec(event.globalPos())

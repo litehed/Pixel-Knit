@@ -43,6 +43,7 @@ def pattern_to_dict(pattern: Pattern) -> dict:
         "palette": pattern.palette,
         "cells": pattern.cells,
         "current_row": pattern.current_row,
+        "markers": pattern.marker_list(),
     }
 
 
@@ -50,11 +51,13 @@ def save_pattern(pattern: Pattern, path: str) -> None:
     write_atomic(path, pattern_to_dict(pattern))
 
 
-def save_current_row(path: str, row: int) -> None:
+# Currently saves cur row and markers
+def save_progress(path: str, pattern: Pattern) -> None:
     data = json.loads(Path(path).read_text(encoding="utf-8"))
     if not isinstance(data, dict) or data.get("format") != FORMAT_NAME:
         raise ValueError("not a pattern file")
-    data["current_row"] = row
+    data["current_row"] = pattern.current_row
+    data["markers"] = pattern.marker_list()
     write_atomic(path, data)
 
 
@@ -111,8 +114,26 @@ def _parse(data) -> Pattern:
     if not isinstance(row, int) or not 0 <= row < height:
         row = 0
 
+    markers: set[tuple[int, int]] = set()
+    raw_markers = data.get("markers")
+    if isinstance(raw_markers, list):
+        for item in raw_markers:
+            if (
+                isinstance(item, list)
+                and len(item) == 2
+                and all(isinstance(i, int) for i in item)
+                and 0 <= item[0] < height
+                and 0 <= item[1] < width
+            ):
+                markers.add((item[0], item[1]))
+
     return Pattern(
-        width=width, height=height, palette=palette, cells=cells, current_row=row
+        width=width,
+        height=height,
+        palette=palette,
+        cells=cells,
+        current_row=row,
+        markers=markers,
     )
 
 

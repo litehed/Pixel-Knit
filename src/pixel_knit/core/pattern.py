@@ -10,6 +10,7 @@ class Pattern:
     palette: list[str] = field(default_factory=lambda: ["#ffffff", DEFAULT_COLOR])
     cells: list[list[int]] = field(default_factory=list)
     current_row: int = 0
+    markers: set[tuple[int, int]] = field(default_factory=set)
 
     def __post_init__(self):
         if not self.cells:
@@ -20,6 +21,9 @@ class Pattern:
             return False
         self.cells[row][col] = value
         return True
+
+    def marker_list(self) -> list[list[int]]:
+        return [[row, col] for row, col in sorted(self.markers)]
 
     def index_for(self, color: str) -> int:
         color = color.lower()
