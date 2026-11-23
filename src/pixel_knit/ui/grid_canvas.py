@@ -9,6 +9,7 @@ from pixel_knit.core.commands import SetBackgroundCommand, StrokeCommand
 from pixel_knit.core.geometry import line_cells
 from pixel_knit.core.pattern import DEFAULT_COLOR, Pattern
 from pixel_knit.ui.theme import ACCENT, BORDER, CANVAS_BACKGROUND, GUIDE, TEXT_MUTED
+from pixel_knit.ui.tool import Tool
 
 DIM_ALPHA = 150
 
@@ -48,6 +49,7 @@ class GridCanvas(QWidget):
         self.setMinimumSize(300, 300)
         self.pattern = pattern or Pattern()
         self.active_color = DEFAULT_COLOR
+        self.tool = Tool.PENCIL
         self._stroke: str | None = None  # PAINT or ERASE while a button is held
         self._last_cell: tuple[int, int] | None = None
         self._stroke_button: Qt.MouseButton | None = None
@@ -75,6 +77,19 @@ class GridCanvas(QWidget):
 
     def set_active_color(self, color: str) -> None:
         self.active_color = color
+
+    def set_tool(self, tool: Tool) -> None:
+        self.tool = tool
+
+    def _stroke_for_click(self, button: Qt.MouseButton) -> str | None:
+        if self.tool == Tool.PENCIL:
+            if button == Qt.MouseButton.LeftButton:
+                return PAINT
+            if button == Qt.MouseButton.RightButton:
+                return ERASE
+        elif self.tool == Tool.ERASER and button == Qt.MouseButton.LeftButton:
+            return ERASE
+        return None
 
     @property
     def dirty(self) -> bool:
@@ -515,12 +530,10 @@ class GridCanvas(QWidget):
             return
         if self._stroke is not None:
             return
-        if button == Qt.MouseButton.LeftButton:
-            self._stroke = PAINT
-        elif button == Qt.MouseButton.RightButton:
-            self._stroke = ERASE
-        else:
+        stroke = self._stroke_for_click(button)
+        if stroke is None:
             return
+        self._stroke = stroke
         self._stroke_button = button
         self._last_cell = None
         self._apply_stroke(event.position())

@@ -118,6 +118,14 @@ QTabBar::tab:selected {
     border-bottom: 1px solid #faf8f5;
 }
 
+QToolBar#toolsToolbar {
+    border-right: 1px solid #ddd5cc;
+}
+QToolBar#toolsToolbar QToolButton {
+    padding: 6px;
+}
+
+
 #startScreen {
     background: #faf8f5;
 }

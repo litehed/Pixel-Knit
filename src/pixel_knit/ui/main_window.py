@@ -1,8 +1,9 @@
 from pathlib import Path
 
-from PySide6.QtCore import QTimer, Qt
+from PySide6.QtCore import QSize, QTimer, Qt
 from PySide6.QtGui import (
     QAction,
+    QActionGroup,
     QCloseEvent,
     QKeySequence,
     QPixmap,
@@ -18,6 +19,7 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QTabBar,
     QTabWidget,
+    QToolBar,
 )
 
 from pixel_knit.core import recovery
@@ -40,6 +42,7 @@ from pixel_knit.ui.palette_panel import PalettePanel
 from pixel_knit.ui.settings_dialog import SettingsDialog
 from pixel_knit.ui.start_screen import StartScreen
 from pixel_knit.ui.thumbnail import render_thumbnail
+from pixel_knit.ui.tool import Tool, ICON_SIZE
 
 WINDOW_NAME = "Pixel Knit"
 
@@ -92,8 +95,11 @@ class MainWindow(QMainWindow):
 
         self.autosave = AutosaveManager(self)
 
+        self._tool = Tool.PENCIL
+
         self._build_menus()
         self._build_toolbar()
+        self._build_tools_toolbar()
         self._restore_window_layout()
         self.tabs.currentChanged.connect(self._on_tab_changed)
         self._thumb_cache: dict[str, tuple[float, QPixmap]] = {}
@@ -205,6 +211,35 @@ class MainWindow(QMainWindow):
         toolbar.addAction(self.row_up_act)
         toolbar.addWidget(self.row_label)
 
+    def _build_tools_toolbar(self):
+        toolbar = QToolBar("Tools", self)
+        toolbar.setObjectName("toolsToolbar")
+        toolbar.setMovable(False)
+        toolbar.setOrientation(Qt.Orientation.Vertical)
+        toolbar.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly)
+        toolbar.setIconSize(QSize(ICON_SIZE, ICON_SIZE))
+        self.addToolBar(Qt.ToolBarArea.LeftToolBarArea, toolbar)
+
+        group = QActionGroup(self)
+        group.setExclusive(True)
+        self._tool_actions: dict[Tool, QAction] = {}
+        for tool in Tool:
+            act = QAction(tool.icon, tool.label, self)
+            act.setCheckable(True)
+            act.setShortcut(QKeySequence(tool.shortcut))
+            act.setToolTip(f"{tool.label} ({tool.shortcut})")
+            act.triggered.connect(lambda _=False, t=tool: self._set_tool(t))
+            group.addAction(act)
+            toolbar.addAction(act)
+            self._tool_actions[tool] = act
+        self._tool_actions[self._tool].setChecked(True)
+
+    def _set_tool(self, tool: Tool):
+        self._tool = tool
+        canvas = self._current_canvas()
+        if canvas is not None:
+            canvas.set_tool(tool)
+
     def bring_to_front(self):
         self.setWindowState(self.windowState() & ~Qt.WindowState.WindowMinimized)
         self.show()
@@ -236,6 +271,8 @@ class MainWindow(QMainWindow):
         self.row_down_act.setEnabled(viewing)
         self.isolate_act.setEnabled(canvas is not None)
         self.isolate_act.setChecked(canvas is not None and canvas.isolated)
+        for act in self._tool_actions.values():
+            act.setEnabled(canvas is not None and not viewing)
         if canvas is not None and viewing:
             self.row_label.setText(
                 f"Row {canvas.current_row + 1} of {canvas.pattern.height}"
@@ -281,6 +318,7 @@ class MainWindow(QMainWindow):
             self.setWindowTitle(WINDOW_NAME)
             self.setWindowModified(False)
             return
+        canvas.set_tool(self._tool)
         self.palette_panel.set_active_color(canvas.active_color)
         canvas.setFocus()
         self._refresh_palette()
