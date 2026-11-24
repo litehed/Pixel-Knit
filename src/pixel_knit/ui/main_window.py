@@ -272,7 +272,7 @@ class MainWindow(QMainWindow):
         self.isolate_act.setEnabled(canvas is not None)
         self.isolate_act.setChecked(canvas is not None and canvas.isolated)
         for act in self._tool_actions.values():
-            act.setEnabled(canvas is not None and not viewing)
+            act.setEnabled(canvas is not None)
         if canvas is not None and viewing:
             self.row_label.setText(
                 f"Row {canvas.current_row + 1} of {canvas.pattern.height}"
@@ -380,7 +380,6 @@ class MainWindow(QMainWindow):
         canvas.viewerChanged.connect(self._sync_viewer_ui)
         canvas.rowChanged.connect(self._sync_viewer_ui)
         canvas.rowChanged.connect(lambda c=canvas: self._queue_row_save(c))
-        canvas.markersChanged.connect(lambda c=canvas: self._queue_row_save(c))
         self.autosave.watch(canvas)
         canvas.set_active_color(self.palette_panel.active_color)
         index = self.tabs.addTab(canvas, self._display_name(canvas))

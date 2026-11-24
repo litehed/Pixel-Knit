@@ -55,3 +55,25 @@ class SetBackgroundCommand(QUndoCommand):
         else:
             self._pattern.palette = list(self._old_palette)
             self._pattern.cells = [row[:] for row in self._old_cells]
+
+
+class MarkersCommand(QUndoCommand):
+    def __init__(
+        self,
+        pattern: Pattern,
+        added: set[tuple[int, int]],
+        removed: set[tuple[int, int]],
+        text: str,
+    ):
+        super().__init__(text)
+        self._pattern = pattern
+        self._added = set(added)
+        self._removed = set(removed)
+
+    def redo(self):
+        self._pattern.markers -= self._removed
+        self._pattern.markers |= self._added
+
+    def undo(self):
+        self._pattern.markers -= self._added
+        self._pattern.markers |= self._removed

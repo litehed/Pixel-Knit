@@ -10,6 +10,7 @@ ICON_SIZE = 32
 class Tool(Enum):
     PENCIL = ("pencil", "Pencil", "P")
     ERASER = ("eraser", "Eraser", "E")
+    MARKER = ("marker", "Stitch Marker", "M")
 
     def __init__(self, icon_name: str, label: str, shortcut: str):
         self.icon_name = icon_name

@@ -5,7 +5,7 @@ from PySide6.QtCore import QEvent, QLineF, QPointF, QRectF, Qt, Signal
 from PySide6.QtGui import QColor, QImage, QPainter, QPen, QUndoStack
 from PySide6.QtWidgets import QMenu, QMessageBox, QWidget
 
-from pixel_knit.core.commands import SetBackgroundCommand, StrokeCommand
+from pixel_knit.core.commands import MarkersCommand, SetBackgroundCommand, StrokeCommand
 from pixel_knit.core.geometry import line_cells
 from pixel_knit.core.pattern import DEFAULT_COLOR, Pattern
 from pixel_knit.ui.theme import ACCENT, BORDER, CANVAS_BACKGROUND, GUIDE, TEXT_MUTED
@@ -41,7 +41,6 @@ class GridCanvas(QWidget):
     paletteChanged = Signal()
     viewerChanged = Signal()
     rowChanged = Signal()
-    markersChanged = Signal()
 
     def __init__(self, pattern: Pattern | None = None, parent=None):
         super().__init__(parent)
@@ -50,6 +49,7 @@ class GridCanvas(QWidget):
         self.pattern = pattern or Pattern()
         self.active_color = DEFAULT_COLOR
         self.tool = Tool.PENCIL
+        self._hover_slot: tuple[int, int] | None = None  # stitch marker snap
         self._stroke: str | None = None  # PAINT or ERASE while a button is held
         self._last_cell: tuple[int, int] | None = None
         self._stroke_button: Qt.MouseButton | None = None
@@ -67,6 +67,7 @@ class GridCanvas(QWidget):
         self._viewer = False
         self._isolated = False
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self.setMouseTracking(True)
         self.session_id = uuid.uuid4().hex
 
     def set_pattern(self, pattern: Pattern) -> None:
@@ -80,6 +81,15 @@ class GridCanvas(QWidget):
 
     def set_tool(self, tool: Tool) -> None:
         self.tool = tool
+        self._hover_slot = None
+        self._update_cursor()
+        self.update()
+
+    def _update_cursor(self) -> None:
+        if self.tool == Tool.MARKER:
+            self.setCursor(Qt.CursorShape.CrossCursor)
+        else:
+            self.unsetCursor()
 
     def _stroke_for_click(self, button: Qt.MouseButton) -> str | None:
         if self.tool == Tool.PENCIL:
@@ -167,27 +177,37 @@ class GridCanvas(QWidget):
             self.update()
             self.rowChanged.emit()
 
-    def toggle_marker(self, row: int, col: int) -> None:
-        markers = self.pattern.markers
-        markers.symmetric_difference_update({(row, col)})
-        self.update()
-        self.markersChanged.emit()
+    def _marker_slot_at(self, pos: QPointF) -> tuple[int, int] | None:
+        p = self.pattern
+        cell, x0, y0 = self._geometry()
+        row = p.height - 1 - int((pos.y() - y0) // cell)
+        gap = round((pos.x() - x0) / cell)
+        if not (0 <= row < p.height and 1 <= gap < p.width):
+            return None
+        if self._isolated and row != p.current_row:
+            return None
+        return row, gap
 
-    def clear_markers(self) -> None:
-        count = len(self.pattern.markers)
-        if not count:
+    def _marker_click(self, button: Qt.MouseButton, pos: QPointF) -> None:
+        slot = self._marker_slot_at(pos)
+        if slot is None:
             return
-        answer = QMessageBox.question(
-            self,
-            "Clear Markers",
-            f"Remove all {count} stitch marker{'s' if count != 1 else ''}?",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-            QMessageBox.StandardButton.No,
-        )
-        if answer == QMessageBox.StandardButton.Yes:
-            self.pattern.markers.clear()
-            self.update()
-            self.markersChanged.emit()
+        markers = self.pattern.markers
+        if button == Qt.MouseButton.LeftButton and slot not in markers:
+            self._push_markers({slot}, set(), "Add Stitch Marker")
+        elif button == Qt.MouseButton.RightButton and slot in markers:
+            self._push_markers(set(), {slot}, "Remove Stitch Marker")
+
+    def _push_markers(
+        self, added: set[tuple[int, int]], removed: set[tuple[int, int]], text: str
+    ) -> None:
+        self.undo_stack.push(MarkersCommand(self.pattern, added, removed, text))
+
+        def clear_markers(self) -> None:
+            if self.pattern.markers:
+                self._push_markers(
+                    set(), set(self.pattern.markers), "Clear Stitch Markers"
+                )
 
     def move_row(self, delta: int) -> None:
         self.set_row(self.pattern.current_row + delta)
@@ -413,28 +433,41 @@ class GridCanvas(QWidget):
 
     def _paint_markers(self, painter: QPainter, cell: float, x0: float, y0: float):
         p = self.pattern
+        preview = self._hover_slot if self.tool == Tool.MARKER else None
+        slots = set(p.markers)
+        if preview is not None:
+            slots.add(preview)
+        if not slots:
+            return
+
         radius = max(2.0, cell * 0.3)
         width = max(1.5, cell * 0.1)
-        halo = QPen(QColor(MARKER_HALO), width + 2)
-        ring = QPen(QColor(MARKER_RING), width)
-
         painter.save()
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         painter.setBrush(Qt.BrushStyle.NoBrush)
-        for row, col in p.markers:
+        for row, gap in slots:
             if self._isolated and row != p.current_row:
                 continue
-            cx = x0 + (col + 0.5) * cell
+            cx = x0 + gap * cell
             cy = y0 + (p.height - 1 - row + 0.5) * cell
             if not (
                 -cell <= cx <= self.width() + cell
                 and -cell <= cy <= self.height() + cell
             ):
                 continue
+
+            halo = QColor(MARKER_HALO)
+            ring = QColor(MARKER_RING)
+            if (row, gap) == preview:
+                if (row, gap) in p.markers:
+                    ring = QColor(ACCENT)
+                else:
+                    halo.setAlpha(110)
+                    ring.setAlpha(110)
             center = QPointF(cx, cy)
-            painter.setPen(halo)
+            painter.setPen(QPen(halo, width + 2))
             painter.drawEllipse(center, radius, radius)
-            painter.setPen(ring)
+            painter.setPen(QPen(ring, width))
             painter.drawEllipse(center, radius, radius)
         painter.restore()
 
@@ -485,8 +518,8 @@ class GridCanvas(QWidget):
 
         if self._viewer and not self._isolated:
             self._paint_row_focus(painter, cell, x0, y0)
-        if self._viewer:
-            self._paint_markers(painter, cell, x0, y0)
+
+        self._paint_markers(painter, cell, x0, y0)
 
     # Input Events
     def wheelEvent(self, event):
@@ -522,6 +555,9 @@ class GridCanvas(QWidget):
             self._last_pan_pos = event.position()
             self.setCursor(Qt.CursorShape.ClosedHandCursor)
             return
+        if self.tool == Tool.MARKER:
+            self._marker_click(button, event.position())
+            return
         if self._viewer:
             if button == Qt.MouseButton.LeftButton and not self._isolated:
                 hit = self.cell_at(event.position())
@@ -546,7 +582,18 @@ class GridCanvas(QWidget):
             self._clamp_pan()
             self.update()
             return
+        if self.tool == Tool.MARKER:
+            slot = self._marker_slot_at(event.position())
+            if slot != self._hover_slot:
+                self._hover_slot = slot
+                self.update()
         self._apply_stroke(event.position())
+
+    def leaveEvent(self, event):
+        if self._hover_slot is not None:
+            self._hover_slot = None
+            self.update()
+        super().leaveEvent(event)
 
     def _finish_stroke(self) -> None:
         self._last_cell = None
@@ -574,23 +621,9 @@ class GridCanvas(QWidget):
             self._finish_stroke()
 
     def contextMenuEvent(self, event):
-        if not self._viewer:
-            event.ignore()  # in edit mode, right-click erases
-            return
-        hit = self.cell_at(QPointF(event.pos()))
-        if hit is None or (self._isolated and hit[0] != self.pattern.current_row):
+        if not self._viewer or self.tool == Tool.MARKER or not self.pattern.markers:
             event.ignore()
             return
 
-        row, col = hit
-        has_marker = (row, col) in self.pattern.markers
-        menu = QMenu(self)
-        toggle = menu.addAction(
-            "Remove Stitch Marker" if has_marker else "Add Stitch Marker"
-        )
-        toggle.triggered.connect(lambda: self.toggle_marker(row, col))
-        menu.addSeparator()
-        clear = menu.addAction("Clear All Markers")
-        clear.setEnabled(bool(self.pattern.markers))
-        clear.triggered.connect(self.clear_markers)
-        menu.exec(event.globalPos())
+    def _remove_marker(self, slot: tuple[int, int]) -> None:
+        self._push_markers(set(), {slot}, "Remove Stitch Marker")
