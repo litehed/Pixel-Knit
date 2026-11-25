@@ -4,6 +4,7 @@ from PySide6.QtGui import QColor, QPalette
 CANVAS_BACKGROUND = "#faf8f5"
 BORDER = "#ddd5cc"
 GUIDE = "#a99d90"
+GRID = "#c2b7aa"
 ACCENT = "#c2566b"
 
 TEXT = "#2b2623"

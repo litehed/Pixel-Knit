@@ -2,13 +2,20 @@ from array import array
 import uuid
 
 from PySide6.QtCore import QEvent, QLineF, QPointF, QRectF, Qt, Signal
-from PySide6.QtGui import QColor, QImage, QPainter, QPen, QUndoStack
+from PySide6.QtGui import QColor, QCursor, QImage, QPainter, QPen, QUndoStack
 from PySide6.QtWidgets import QMenu, QMessageBox, QWidget
 
 from pixel_knit.core.commands import MarkersCommand, SetBackgroundCommand, StrokeCommand
 from pixel_knit.core.geometry import line_cells
 from pixel_knit.core.pattern import DEFAULT_COLOR, Pattern
-from pixel_knit.ui.theme import ACCENT, BORDER, CANVAS_BACKGROUND, GUIDE, TEXT_MUTED
+from pixel_knit.ui.theme import (
+    ACCENT,
+    BORDER,
+    CANVAS_BACKGROUND,
+    GRID,
+    GUIDE,
+    TEXT_MUTED,
+)
 from pixel_knit.ui.tool import Tool
 
 DIM_ALPHA = 150
@@ -49,6 +56,7 @@ class GridCanvas(QWidget):
         self.pattern = pattern or Pattern()
         self.active_color = DEFAULT_COLOR
         self.tool = Tool.PENCIL
+        self._cursors: dict[tuple, QCursor] = {}
         self._hover_slot: tuple[int, int] | None = None  # stitch marker snap
         self._stroke: str | None = None  # PAINT or ERASE while a button is held
         self._last_cell: tuple[int, int] | None = None
@@ -86,10 +94,15 @@ class GridCanvas(QWidget):
         self.update()
 
     def _update_cursor(self) -> None:
-        if self.tool == Tool.MARKER:
-            self.setCursor(Qt.CursorShape.CrossCursor)
-        else:
+        if self._viewer and self.tool != Tool.MARKER:
             self.unsetCursor()
+            return
+        flipped = self.tool == Tool.PENCIL and self._stroke == ERASE
+        dpr = self.devicePixelRatioF()
+        key = (self.tool, flipped, dpr)
+        if key not in self._cursors:
+            self._cursors[key] = self.tool.cursor(dpr, flipped)
+        self.setCursor(self._cursors[key])
 
     def _stroke_for_click(self, button: Qt.MouseButton) -> str | None:
         if self.tool == Tool.PENCIL:
@@ -144,6 +157,7 @@ class GridCanvas(QWidget):
             self._leave_isolated()
         if enabled:
             self.setFocus()
+        self._update_cursor()
         self.update()
         self.viewerChanged.emit()
 
@@ -162,6 +176,7 @@ class GridCanvas(QWidget):
             self.setFocus()
         else:
             self._leave_isolated()
+        self._update_cursor()
         self.update()
         self.viewerChanged.emit()
 
@@ -500,7 +515,7 @@ class GridCanvas(QWidget):
         painter.drawImage(target, self._chart_image(), source)
 
         if cell >= GRID_LINE_MIN_CELL:
-            painter.setPen(QPen(QColor(BORDER), 1))
+            painter.setPen(QPen(QColor(GRID), 1))
             lines = [
                 QLineF(x0 + c * cell, target.top(), x0 + c * cell, target.bottom())
                 for c in range(first_col, last_col + 2)
@@ -571,6 +586,7 @@ class GridCanvas(QWidget):
             return
         self._stroke = stroke
         self._stroke_button = button
+        self._update_cursor()
         self._last_cell = None
         self._apply_stroke(event.position())
 
@@ -600,6 +616,7 @@ class GridCanvas(QWidget):
         self._stroke_button = None
         changes, self._stroke_changes = self._stroke_changes, {}
         stroke, self._stroke = self._stroke, None
+        self._update_cursor()
         if not changes:
             return
         palette = self.pattern.palette
