@@ -372,6 +372,12 @@ class GridCanvas(QWidget):
         painter.setPen(QPen(QColor(ACCENT), 2))
         painter.drawRect(QRectF(x0, y, width, cell))
 
+    def _numbering_from_right(self) -> bool:
+        return not self._isolated or (self.pattern.current_row + 1) % 2 == 1
+
+    def _stitches_from(self, gap: int) -> int:
+        return self.pattern.width - gap if self._numbering_from_right() else gap
+
     def _paint_guide_lines(
         self,
         painter: QPainter,
@@ -391,7 +397,7 @@ class GridCanvas(QWidget):
         lines = [
             QLineF(x0 + c * cell, target.top(), x0 + c * cell, target.bottom())
             for c in range(first_col, last_col + 2)
-            if 0 < c < p.width and (p.width - c) % step == 0
+            if 0 < c < p.width and self._stitches_from(c) % step == 0
         ]
         lines += [
             QLineF(target.left(), y0 + r * cell, target.right(), y0 + r * cell)
@@ -486,6 +492,41 @@ class GridCanvas(QWidget):
             painter.drawEllipse(center, radius, radius)
         painter.restore()
 
+    def _paint_column_numbers(
+        self,
+        painter: QPainter,
+        cell: float,
+        x0: float,
+        y0: float,
+        first_col: int,
+        last_col: int,
+        screen_row: int,
+    ):
+        p = self.pattern
+        from_right = self._numbering_from_right()
+        pixel_size = int(max(9, min(LABEL_MAX_FONT, cell * 0.55)))
+        font = painter.font()
+        font.setPixelSize(pixel_size)
+        painter.setFont(font)
+        painter.setPen(QColor(TEXT_MUTED))
+
+        needed = painter.fontMetrics().horizontalAdvance(str(p.width)) + 8
+        step = next((s for s in LABEL_STEPS if s * cell >= needed), LABEL_STEPS[-1])
+
+        top = y0 + (screen_row + 1) * cell + LABEL_GAP
+        box_h = pixel_size * 1.6
+        box_w = pixel_size * 4  # ennough space for about 4 digits
+        for col in range(first_col, last_col + 1):
+            number = p.width - col if from_right else col + 1
+            if number % step:
+                continue
+            left = x0 + (col + 0.5) * cell - box_w / 2
+            painter.drawText(
+                QRectF(left, top, box_w, box_h),
+                Qt.AlignmentFlag.AlignCenter,
+                str(number),
+            )
+
     def paintEvent(self, event):
         p = self.pattern
         cell, x0, y0 = self._geometry()
@@ -530,6 +571,11 @@ class GridCanvas(QWidget):
             painter, cell, x0, y0, target, first_col, last_col, first_row, last_row
         )
         self._paint_row_numbers(painter, cell, x0, y0, first_row, last_row)
+
+        if self._isolated:
+            self._paint_column_numbers(
+                painter, cell, x0, y0, first_col, last_col, first_row
+            )
 
         if self._viewer and not self._isolated:
             self._paint_row_focus(painter, cell, x0, y0)
